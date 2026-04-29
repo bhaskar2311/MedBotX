@@ -19,6 +19,7 @@ for k, v in {
     "messages": [], "session_id": None,
     "access_token": None, "username": None,
     "user_id": None, "medical_profile": {},
+    "chat_history": [],   # list of past sessions: [{title, messages, ts}]
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -261,6 +262,25 @@ hr { border: none !important; border-top: 1px solid #1a2a45 !important; margin: 
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.22); border-radius: 4px; }
+
+/* New Chat button */
+.new-chat-btn > button {
+    background: linear-gradient(135deg, #059669, #10b981) !important;
+    box-shadow: 0 4px 14px rgba(16,185,129,0.3) !important;
+}
+.new-chat-btn > button:hover {
+    box-shadow: 0 6px 20px rgba(16,185,129,0.45) !important;
+}
+
+/* History items */
+.hist-item {
+    background: #111827; border: 1px solid #1a2a45;
+    border-radius: 9px; padding: 9px 12px; margin-bottom: 6px;
+    cursor: pointer; transition: all 0.15s;
+}
+.hist-item:hover { border-color: #3b82f6; background: #1a2235; }
+.hist-title { font-size: 0.78rem; font-weight: 600; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hist-meta  { font-size: 0.66rem; color: #64748b; margin-top: 2px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -351,6 +371,61 @@ with st.sidebar:
         <div class="badge"><span class="bdot"></span>&nbsp;Online &amp; Ready</div>
     </div>
     """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── New Chat button ───────────────────────────────────────────────────────
+    st.markdown('<div class="new-chat-btn">', unsafe_allow_html=True)
+    if st.button("✨ New Chat", key="new_chat_btn"):
+        # Save current chat to history before clearing
+        if st.session_state.messages:
+            first_q = next(
+                (m["content"] for m in st.session_state.messages if m["role"] == "human"),
+                "Chat session"
+            )
+            title = first_q[:40] + ("..." if len(first_q) > 40 else "")
+            st.session_state.chat_history.insert(0, {
+                "title": title,
+                "messages": st.session_state.messages.copy(),
+                "ts": datetime.now().strftime("%b %d, %I:%M %p"),
+                "count": len([m for m in st.session_state.messages if m["role"] == "human"]),
+            })
+            # Keep only last 10 sessions
+            st.session_state.chat_history = st.session_state.chat_history[:10]
+        st.session_state.messages = []
+        st.session_state.session_id = None
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Chat History ──────────────────────────────────────────────────────────
+    if st.session_state.chat_history:
+        st.markdown('<span class="slbl">💬 Recent Chats</span>', unsafe_allow_html=True)
+        for i, sess in enumerate(st.session_state.chat_history):
+            col_h, col_x = st.columns([5, 1])
+            with col_h:
+                if st.button(f"🗨 {sess['title']}", key=f"hist_{i}",
+                             help=f"{sess['count']} questions · {sess['ts']}",
+                             use_container_width=True):
+                    # Save current chat first
+                    if st.session_state.messages:
+                        first_q = next(
+                            (m["content"] for m in st.session_state.messages if m["role"] == "human"),
+                            "Chat session"
+                        )
+                        t = first_q[:40] + ("..." if len(first_q) > 40 else "")
+                        st.session_state.chat_history.insert(0, {
+                            "title": t,
+                            "messages": st.session_state.messages.copy(),
+                            "ts": datetime.now().strftime("%b %d, %I:%M %p"),
+                            "count": len([m for m in st.session_state.messages if m["role"] == "human"]),
+                        })
+                    st.session_state.messages = sess["messages"].copy()
+                    st.session_state.session_id = None
+                    st.rerun()
+            with col_x:
+                if st.button("✕", key=f"del_{i}", help="Delete this chat"):
+                    st.session_state.chat_history.pop(i)
+                    st.rerun()
 
     st.divider()
 
