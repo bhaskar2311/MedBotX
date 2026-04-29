@@ -2,7 +2,8 @@
 MedBotX – Professional Medical Chatbot UI
 Developed by Bhaskar Shivaji Kumbhar
 """
-import os, requests
+import os
+import requests
 import streamlit as st
 from datetime import datetime
 
@@ -25,900 +26,602 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ── Theme tokens ──────────────────────────────────────────────────────────────
 D = st.session_state.dark_mode
-BG         = "#0b0f1a"      if D else "#f0f4f8"
-BG2        = "#111827"      if D else "#ffffff"
-BG3        = "#1a2235"      if D else "#e8edf5"
-BORDER     = "rgba(99,179,237,0.12)" if D else "rgba(49,130,206,0.2)"
-TEXT       = "#e2e8f0"      if D else "#1a202c"
-TEXT2      = "#94a3b8"      if D else "#64748b"
-ACCENT     = "#3b82f6"
-ACCENT2    = "#60a5fa"
-BOT_BG     = "#1e293b"      if D else "#eff6ff"
-BOT_BORDER = "rgba(96,165,250,0.2)" if D else "rgba(59,130,246,0.2)"
-USER_BG    = "linear-gradient(135deg,#1d4ed8,#3b82f6)"
-CARD       = "#161d2e"      if D else "#ffffff"
-CARD_BORDER= "rgba(255,255,255,0.06)" if D else "rgba(0,0,0,0.08)"
-INPUT_BG   = "#1e293b"      if D else "#f8fafc"
-SIDE_BG    = "#0d1320"      if D else "#f8fafc"
-SUCCESS    = "#10b981"
-WARNING    = "#f59e0b"
+
+# ── Full CSS ──────────────────────────────────────────────────────────────────
+if D:
+    BG       = "#0b0f1a"
+    BG2      = "#111827"
+    BG3      = "#1a2235"
+    CARD     = "#161d2e"
+    BORDER   = "rgba(99,179,237,0.13)"
+    TEXT     = "#e2e8f0"
+    TEXT2    = "#94a3b8"
+    INPUT_BG = "#1e293b"
+    SIDE_BG  = "#0d1320"
+    BOT_BG   = "#1a2235"
+    BOT_BD   = "rgba(96,165,250,0.18)"
+    MSG_USER = "#1d4ed8"
+    CHIP_BG  = "#1e293b"
+else:
+    BG       = "#f0f4f8"
+    BG2      = "#ffffff"
+    BG3      = "#e8edf5"
+    CARD     = "#ffffff"
+    BORDER   = "rgba(59,130,246,0.18)"
+    TEXT     = "#1a202c"
+    TEXT2    = "#64748b"
+    INPUT_BG = "#ffffff"
+    SIDE_BG  = "#f8fafc"
+    BOT_BG   = "#eff6ff"
+    BOT_BD   = "rgba(59,130,246,0.18)"
+    MSG_USER = "#2563eb"
+    CHIP_BG  = "#e0eaff"
+
+ACCENT  = "#3b82f6"
+ACCENT2 = "#60a5fa"
+SUCCESS = "#10b981"
 
 st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 *, html, body, [class*="css"] {{
     font-family: 'Inter', sans-serif !important;
-    box-sizing: border-box;
 }}
 
-/* ── App background ── */
+/* App */
 .stApp {{ background: {BG} !important; }}
-.main .block-container {{
-    padding: 0 !important;
-    max-width: 100% !important;
-}}
+.main .block-container {{ padding: 1.5rem 2rem 1rem 2rem !important; max-width: 100% !important; }}
 
-/* ── Hide Streamlit chrome ── */
-#MainMenu, footer {{ visibility: hidden; }}
-[data-testid="stToolbar"] {{ display: none; }}
+/* Hide chrome */
+#MainMenu, footer, [data-testid="stToolbar"] {{ display: none !important; }}
 
-/* ── Sidebar ── */
-[data-testid="stSidebar"] {{
-    background: {SIDE_BG} !important;
-    border-right: 1px solid {BORDER};
-    padding: 0 !important;
-}}
-[data-testid="stSidebar"] > div {{
-    padding: 0 !important;
-}}
-[data-testid="stSidebar"] * {{
-    color: {TEXT} !important;
-}}
+/* Sidebar */
+[data-testid="stSidebar"] {{ background: {SIDE_BG} !important; border-right: 1px solid {BORDER}; }}
+[data-testid="stSidebar"] * {{ color: {TEXT} !important; }}
+[data-testid="stSidebarContent"] {{ padding: 1.2rem 1rem !important; }}
 
-/* ── Sidebar inner padding ── */
-[data-testid="stSidebarContent"] {{
-    padding: 20px 16px !important;
-}}
-
-/* ── Logo Card ── */
+/* Logo */
 .logo-card {{
-    background: linear-gradient(135deg, #1e3a5f 0%, #1d4ed8 50%, #3b82f6 100%);
-    border-radius: 20px;
-    padding: 24px 20px;
-    text-align: center;
-    margin-bottom: 20px;
-    position: relative;
-    overflow: hidden;
-    box-shadow: 0 8px 32px rgba(59,130,246,0.3);
+    background: linear-gradient(135deg,#1e3a5f,#1d4ed8 60%,#3b82f6);
+    border-radius: 18px; padding: 22px 16px; text-align: center;
+    margin-bottom: 18px;
+    box-shadow: 0 8px 32px rgba(59,130,246,0.28);
 }}
-.logo-card::before {{
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle at 70% 30%, rgba(255,255,255,0.08) 0%, transparent 60%);
+.logo-card .logo-icon {{ font-size: 2.4rem; }}
+.logo-card h2 {{
+    color: #fff !important; font-size: 1.65rem !important;
+    font-weight: 900 !important; margin: 6px 0 2px !important;
+    letter-spacing: -0.8px;
 }}
-.logo-card .icon {{ font-size: 2.8rem; margin-bottom: 8px; display: block; }}
-.logo-card h1 {{
-    color: #fff !important;
-    font-size: 1.8rem !important;
-    font-weight: 900 !important;
-    margin: 0 0 4px 0 !important;
-    letter-spacing: -1px;
-    text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+.logo-card .sub {{ color: rgba(255,255,255,0.75) !important; font-size: 0.76rem !important; }}
+.badge {{
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.4);
+    border-radius: 20px; padding: 3px 10px; font-size: 0.7rem !important;
+    color: #6ee7b7 !important; margin-top: 10px;
 }}
-.logo-card .tagline {{
-    color: rgba(255,255,255,0.8) !important;
-    font-size: 0.78rem !important;
-    font-weight: 400 !important;
-    margin: 0 !important;
-    letter-spacing: 0.5px;
-}}
-.online-badge {{
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    background: rgba(16,185,129,0.2);
-    border: 1px solid rgba(16,185,129,0.4);
-    border-radius: 20px;
-    padding: 4px 12px;
-    font-size: 0.72rem !important;
-    color: #6ee7b7 !important;
-    margin-top: 12px;
-    font-weight: 500;
-}}
-.online-dot {{
-    width: 6px;
-    height: 6px;
-    background: #10b981;
-    border-radius: 50%;
-    animation: pulse 2s infinite;
-}}
-@keyframes pulse {{
-    0%,100% {{ opacity:1; transform:scale(1); }}
-    50%      {{ opacity:0.5; transform:scale(1.3); }}
-}}
+.bdot {{ width:6px; height:6px; background:#10b981; border-radius:50%;
+         display:inline-block; animation: blink 1.8s infinite; }}
+@keyframes blink {{ 0%,100%{{opacity:1}} 50%{{opacity:0.3}} }}
 
-/* ── User profile chip ── */
-.user-chip {{
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: {BG3};
-    border: 1px solid {BORDER};
-    border-radius: 12px;
-    padding: 12px 14px;
-    margin-bottom: 12px;
-}}
-.user-avatar {{
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    background: linear-gradient(135deg,#1d4ed8,#7c3aed);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1rem;
-    flex-shrink: 0;
-}}
-.user-info .name {{ font-weight: 700; font-size: 0.9rem; color: {TEXT}; }}
-.user-info .role {{ font-size: 0.72rem; color: {SUCCESS}; font-weight: 500; }}
+/* Section header */
+.sec {{ font-size:0.65rem !important; font-weight:700 !important;
+        letter-spacing:1.4px !important; color:{TEXT2} !important;
+        text-transform:uppercase !important; margin:14px 0 6px 0 !important; }}
 
-/* ── Section label ── */
-.section-label {{
-    font-size: 0.68rem !important;
-    font-weight: 700 !important;
-    letter-spacing: 1.2px !important;
-    color: {TEXT2} !important;
-    text-transform: uppercase !important;
-    margin: 16px 0 8px 0 !important;
+/* User chip */
+.uchip {{
+    display:flex; align-items:center; gap:10px;
+    background:{BG3}; border:1px solid {BORDER};
+    border-radius:12px; padding:12px; margin-bottom:10px;
 }}
+.uav {{
+    width:36px; height:36px; border-radius:10px;
+    background:linear-gradient(135deg,#1d4ed8,#7c3aed);
+    display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:1rem; color:#fff; flex-shrink:0;
+}}
+.uname {{ font-weight:700; font-size:0.88rem; color:{TEXT}; }}
+.urole {{ font-size:0.7rem; color:{SUCCESS}; font-weight:500; }}
 
-/* ── Auth tabs ── */
-.stRadio [role="radiogroup"] {{
-    display: flex;
-    gap: 4px;
-    background: {BG3};
-    border-radius: 10px;
-    padding: 4px;
-}}
-.stRadio [role="radiogroup"] label {{
-    flex: 1;
-    text-align: center;
-    padding: 7px 12px !important;
-    border-radius: 8px !important;
-    font-size: 0.82rem !important;
-    font-weight: 500 !important;
-    cursor: pointer;
-    transition: all 0.2s;
-    color: {TEXT2} !important;
-}}
-.stRadio [role="radiogroup"] label[data-selected="true"] {{
-    background: {ACCENT} !important;
-    color: white !important;
-}}
-
-/* ── Forms ── */
+/* Form inputs */
 .stTextInput > label, .stTextArea > label,
 .stNumberInput > label, .stSelectbox > label {{
-    font-size: 0.78rem !important;
-    font-weight: 600 !important;
-    color: {TEXT2} !important;
-    letter-spacing: 0.3px !important;
-    margin-bottom: 4px !important;
+    font-size:0.77rem !important; font-weight:600 !important;
+    color:{TEXT2} !important; margin-bottom:2px !important;
 }}
-.stTextInput input, .stTextArea textarea,
-.stNumberInput input {{
-    background: {INPUT_BG} !important;
-    border: 1.5px solid {BORDER} !important;
-    border-radius: 10px !important;
-    color: {TEXT} !important;
-    font-size: 0.88rem !important;
-    transition: all 0.2s !important;
+.stTextInput input, .stTextArea textarea, .stNumberInput input {{
+    background:{INPUT_BG} !important; border:1.5px solid {BORDER} !important;
+    border-radius:10px !important; color:{TEXT} !important;
+    font-size:0.88rem !important;
 }}
 .stTextInput input:focus, .stTextArea textarea:focus {{
-    border-color: {ACCENT} !important;
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.15) !important;
-    outline: none !important;
+    border-color:{ACCENT} !important;
+    box-shadow:0 0 0 3px rgba(59,130,246,0.13) !important;
 }}
 .stSelectbox > div > div {{
-    background: {INPUT_BG} !important;
-    border: 1.5px solid {BORDER} !important;
-    border-radius: 10px !important;
-    color: {TEXT} !important;
+    background:{INPUT_BG} !important; border:1.5px solid {BORDER} !important;
+    border-radius:10px !important; color:{TEXT} !important;
 }}
 
-/* ── Primary button ── */
+/* Buttons */
 .stButton > button {{
-    background: linear-gradient(135deg, #1d4ed8, #3b82f6) !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-weight: 600 !important;
-    font-size: 0.88rem !important;
-    padding: 11px 20px !important;
-    width: 100% !important;
-    letter-spacing: 0.2px !important;
-    box-shadow: 0 4px 16px rgba(59,130,246,0.35) !important;
-    transition: all 0.2s !important;
+    background:linear-gradient(135deg,#1d4ed8,#3b82f6) !important;
+    color:#fff !important; border:none !important; border-radius:10px !important;
+    font-weight:600 !important; font-size:0.87rem !important;
+    padding:10px 20px !important; width:100% !important;
+    box-shadow:0 4px 14px rgba(59,130,246,0.32) !important;
+    transition:all 0.18s !important;
 }}
 .stButton > button:hover {{
-    transform: translateY(-2px) !important;
-    box-shadow: 0 6px 24px rgba(59,130,246,0.45) !important;
-}}
-.stButton > button:active {{ transform: translateY(0) !important; }}
-
-/* ── Danger button ── */
-.danger-btn > button {{
-    background: linear-gradient(135deg,#991b1b,#dc2626) !important;
-    box-shadow: 0 4px 16px rgba(220,38,38,0.3) !important;
+    transform:translateY(-2px) !important;
+    box-shadow:0 6px 20px rgba(59,130,246,0.42) !important;
 }}
 
-/* ── Divider ── */
-hr {{ border-color: {BORDER} !important; margin: 12px 0 !important; }}
-
-/* ── Disclaimer ── */
-.disclaimer {{
-    background: rgba(245,158,11,0.08);
-    border: 1px solid rgba(245,158,11,0.25);
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-size: 0.74rem !important;
-    color: #fbbf24 !important;
-    line-height: 1.6;
-    margin-top: 8px;
+/* Expander */
+[data-testid="stExpander"] {{
+    background:{BG3} !important; border:1px solid {BORDER} !important;
+    border-radius:12px !important; overflow:hidden;
 }}
-
-/* ── Developer footer ── */
-.dev-footer {{
-    text-align: center;
-    padding: 10px 0 0 0;
-    font-size: 0.7rem !important;
-    color: {TEXT2} !important;
+[data-testid="stExpander"] summary {{
+    font-weight:600 !important; font-size:0.84rem !important;
+    color:{TEXT} !important; padding:12px 14px !important;
 }}
-.dev-footer .name {{ color: {ACCENT2} !important; font-weight: 700; }}
+[data-testid="stExpander"] summary:hover {{ background:rgba(59,130,246,0.06) !important; }}
 
-/* ═══════════════════════════════════════════════════
-   MAIN CONTENT
-═══════════════════════════════════════════════════ */
-
-/* ── Top header ── */
-.topbar {{
-    background: {BG2};
-    border-bottom: 1px solid {BORDER};
-    padding: 18px 36px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}}
-.topbar-left h2 {{
-    color: {TEXT};
-    font-size: 1.25rem;
-    font-weight: 800;
-    margin: 0;
-    letter-spacing: -0.5px;
-}}
-.topbar-left p {{
-    color: {TEXT2};
-    font-size: 0.78rem;
-    margin: 3px 0 0 0;
+/* ── Chat messages via st.chat_message ── */
+[data-testid="stChatMessage"] {{
+    background:transparent !important;
+    border:none !important;
+    padding: 4px 0 !important;
 }}
 
-/* ── KPI cards ── */
-.kpi-row {{
-    display: grid;
-    grid-template-columns: repeat(4,1fr);
-    gap: 12px;
-    padding: 20px 36px 0 36px;
-}}
-.kpi-card {{
-    background: {CARD};
-    border: 1px solid {CARD_BORDER};
-    border-radius: 14px;
-    padding: 16px 18px;
-    position: relative;
-    overflow: hidden;
-    transition: transform 0.2s, box-shadow 0.2s;
-}}
-.kpi-card:hover {{
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-}}
-.kpi-card .kpi-icon {{
-    font-size: 1.4rem;
-    margin-bottom: 8px;
-}}
-.kpi-card .kpi-val {{
-    font-size: 1.15rem;
-    font-weight: 800;
-    color: {TEXT};
-    letter-spacing: -0.3px;
-}}
-.kpi-card .kpi-label {{
-    font-size: 0.72rem;
-    color: {TEXT2};
-    font-weight: 500;
-    margin-top: 2px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}}
-.kpi-card .kpi-accent {{
-    position: absolute;
-    top: 0; right: 0;
-    width: 60px; height: 60px;
-    border-radius: 0 14px 0 60px;
-    opacity: 0.12;
+/* Bot bubble */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) > div:last-child {{
+    background: {BOT_BG} !important;
+    border: 1px solid {BOT_BD} !important;
+    border-radius: 0 16px 16px 16px !important;
+    padding: 14px 18px !important;
+    color: {TEXT} !important;
+    font-size: 0.91rem !important;
+    line-height: 1.75 !important;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    max-width: 75%;
 }}
 
-/* ── Chat area ── */
-.chat-area {{
-    padding: 28px 36px 12px 36px;
-    min-height: 400px;
+/* User bubble */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) > div:last-child {{
+    background: linear-gradient(135deg,{MSG_USER},{ACCENT}) !important;
+    border-radius: 16px 0 16px 16px !important;
+    padding: 14px 18px !important;
+    color: #fff !important;
+    font-size: 0.91rem !important;
+    line-height: 1.75 !important;
+    box-shadow: 0 4px 16px rgba(59,130,246,0.3);
+    max-width: 75%;
+    margin-left: auto;
 }}
 
-/* ── Welcome screen ── */
-.welcome-wrap {{
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 60px 20px 40px;
-    text-align: center;
+/* Avatar icons */
+[data-testid="chatAvatarIcon-assistant"] {{
+    background: linear-gradient(135deg,#1e3a5f,#1d4ed8) !important;
+    border: 1px solid rgba(59,130,246,0.3) !important;
+    border-radius: 12px !important;
 }}
-.welcome-wrap .hero-icon {{
-    font-size: 5rem;
-    margin-bottom: 20px;
-    filter: drop-shadow(0 0 40px rgba(59,130,246,0.5));
-    animation: float 3s ease-in-out infinite;
-}}
-@keyframes float {{
-    0%,100% {{ transform: translateY(0); }}
-    50%      {{ transform: translateY(-8px); }}
-}}
-.welcome-wrap h2 {{
-    font-size: 2rem;
-    font-weight: 900;
-    color: {TEXT};
-    margin: 0 0 12px 0;
-    letter-spacing: -1px;
-}}
-.welcome-wrap .sub {{
-    color: {TEXT2};
-    font-size: 0.95rem;
-    max-width: 500px;
-    line-height: 1.8;
-    margin-bottom: 36px;
-}}
-.chips-grid {{
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    max-width: 600px;
-    width: 100%;
-}}
-.chip {{
-    background: {BG3};
-    border: 1px solid {BORDER};
-    border-radius: 12px;
-    padding: 12px 16px;
-    font-size: 0.83rem;
-    color: {ACCENT2};
-    cursor: pointer;
-    text-align: left;
-    transition: all 0.2s;
-    line-height: 1.5;
-}}
-.chip:hover {{
-    background: rgba(59,130,246,0.1);
-    border-color: {ACCENT};
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(59,130,246,0.2);
-}}
-.chip .chip-icon {{ margin-right: 6px; }}
-
-/* ── Message bubbles ── */
-.msg-wrap {{
-    display: flex;
-    margin-bottom: 24px;
-    gap: 14px;
-    align-items: flex-start;
-    animation: msgIn 0.35s cubic-bezier(0.34,1.56,0.64,1);
-}}
-@keyframes msgIn {{
-    from {{ opacity:0; transform:translateY(12px) scale(0.97); }}
-    to   {{ opacity:1; transform:translateY(0) scale(1); }}
-}}
-.msg-wrap.user {{ flex-direction: row-reverse; }}
-
-.av {{
-    width: 40px;
-    height: 40px;
-    border-radius: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.1rem;
-    flex-shrink: 0;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-}}
-.av.bot {{
-    background: linear-gradient(135deg,#1e3a5f,#1d4ed8);
-    border: 1px solid rgba(59,130,246,0.3);
-}}
-.av.usr {{
-    background: linear-gradient(135deg,#065f46,#059669);
-    border: 1px solid rgba(5,150,105,0.3);
+[data-testid="chatAvatarIcon-user"] {{
+    background: linear-gradient(135deg,#065f46,#059669) !important;
+    border: 1px solid rgba(5,150,105,0.3) !important;
+    border-radius: 12px !important;
 }}
 
-.bubble {{
-    max-width: 65%;
-    padding: 16px 20px;
-    border-radius: 18px;
-    font-size: 0.9rem;
-    line-height: 1.75;
-    position: relative;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.1);
-}}
-.bubble.bot {{
-    background: {BOT_BG};
-    border: 1px solid {BOT_BORDER};
-    border-top-left-radius: 4px;
-    color: {TEXT};
-}}
-.bubble.usr {{
-    background: {USER_BG};
-    border: none;
-    border-top-right-radius: 4px;
-    color: white;
-}}
-.bubble .btime {{
-    font-size: 0.68rem;
-    opacity: 0.5;
-    margin-top: 8px;
-    font-family: 'JetBrains Mono', monospace;
+/* Chat message text color */
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] li,
+[data-testid="stChatMessage"] strong {{
+    color: inherit !important;
 }}
 
-/* ── Typing indicator ── */
-.typing {{
-    display: flex;
-    gap: 5px;
-    padding: 14px 20px;
-    background: {BOT_BG};
-    border: 1px solid {BOT_BORDER};
-    border-radius: 18px;
-    border-top-left-radius: 4px;
-    width: fit-content;
-}}
-.dot {{
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: {ACCENT2};
-    animation: bounce 1.2s infinite;
-}}
-.dot:nth-child(2) {{ animation-delay: 0.2s; }}
-.dot:nth-child(3) {{ animation-delay: 0.4s; }}
-@keyframes bounce {{
-    0%,80%,100% {{ transform:scale(0.7); opacity:0.5; }}
-    40%          {{ transform:scale(1);   opacity:1; }}
-}}
-
-/* ── Input bar ── */
-.input-section {{
-    padding: 0 36px 20px 36px;
-    margin-top: 8px;
-}}
-.input-section .stTextInput input {{
+/* Chat input */
+[data-testid="stChatInput"] {{
     background: {INPUT_BG} !important;
     border: 2px solid {BORDER} !important;
     border-radius: 14px !important;
-    color: {TEXT} !important;
-    font-size: 0.95rem !important;
-    padding: 16px 20px !important;
-    transition: all 0.2s !important;
 }}
-.input-section .stTextInput input:focus {{
+[data-testid="stChatInput"]:focus-within {{
     border-color: {ACCENT} !important;
     box-shadow: 0 0 0 4px rgba(59,130,246,0.12) !important;
 }}
-.send-btn > button {{
-    height: 52px !important;
-    border-radius: 14px !important;
-    font-size: 1rem !important;
-    padding: 0 !important;
+[data-testid="stChatInput"] textarea {{
+    color: {TEXT} !important; font-size:0.95rem !important;
+    background:transparent !important;
+}}
+[data-testid="stChatInputSubmitButton"] button {{
+    background: linear-gradient(135deg,#1d4ed8,{ACCENT}) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 4px 12px rgba(59,130,246,0.35) !important;
 }}
 
-/* ── Metrics override ── */
-[data-testid="stMetricValue"] {{
-    color: {TEXT} !important;
-    font-size: 1rem !important;
-    font-weight: 700 !important;
+/* KPI cards */
+.kpi {{
+    background:{CARD}; border:1px solid {BORDER}; border-radius:14px;
+    padding:16px; text-align:center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }}
-[data-testid="stMetricLabel"] {{
-    color: {TEXT2} !important;
-    font-size: 0.72rem !important;
+.kpi .ki {{ font-size:1.5rem; margin-bottom:6px; }}
+.kpi .kv {{ font-size:1rem; font-weight:800; color:{TEXT}; }}
+.kpi .kl {{ font-size:0.68rem; color:{TEXT2}; text-transform:uppercase;
+             letter-spacing:0.6px; margin-top:2px; font-weight:500; }}
+
+/* Top bar */
+.topbar {{
+    background:{BG2}; border:1px solid {BORDER}; border-radius:16px;
+    padding:18px 24px; margin-bottom:20px;
+    display:flex; align-items:center; justify-content:space-between;
 }}
-[data-testid="stMetric"] {{
-    background: {CARD};
-    border: 1px solid {CARD_BORDER};
-    border-radius: 12px;
-    padding: 12px 16px !important;
+.topbar h1 {{
+    color:{TEXT}; font-size:1.3rem; font-weight:800;
+    margin:0; letter-spacing:-0.4px;
+}}
+.topbar p {{ color:{TEXT2}; font-size:0.78rem; margin:3px 0 0 0; }}
+
+/* Welcome */
+.welcome {{
+    text-align:center; padding:40px 20px 20px;
+}}
+.welcome .wi {{ font-size:4rem; margin-bottom:14px;
+               animation:float 3s ease-in-out infinite; display:block; }}
+@keyframes float {{
+    0%,100%{{transform:translateY(0)}} 50%{{transform:translateY(-8px)}}
+}}
+.welcome h2 {{
+    font-size:1.8rem; font-weight:900; color:{TEXT};
+    letter-spacing:-0.8px; margin-bottom:10px;
+}}
+.welcome p {{ color:{TEXT2}; font-size:0.92rem; max-width:480px;
+              margin:0 auto 28px; line-height:1.8; }}
+.chips {{
+    display:grid; grid-template-columns:1fr 1fr;
+    gap:10px; max-width:580px; margin:0 auto;
+}}
+.chip {{
+    background:{CHIP_BG}; border:1px solid {BORDER};
+    border-radius:12px; padding:12px 15px;
+    font-size:0.82rem; color:{ACCENT2};
+    text-align:left; line-height:1.5;
+    transition:all 0.18s; cursor:pointer;
+}}
+.chip:hover {{
+    background:rgba(59,130,246,0.1); border-color:{ACCENT};
+    transform:translateY(-2px);
+    box-shadow:0 4px 12px rgba(59,130,246,0.18);
 }}
 
-/* ── Expander ── */
-[data-testid="stExpander"] {{
-    background: {BG3} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 12px !important;
-}}
-[data-testid="stExpander"] summary {{
-    color: {TEXT} !important;
-    font-weight: 600 !important;
-    font-size: 0.85rem !important;
+/* Disclaimer */
+.disc {{
+    background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.22);
+    border-radius:10px; padding:10px 13px;
+    font-size:0.73rem !important; color:#fbbf24 !important; line-height:1.6;
 }}
 
-/* ── Toggle / checkbox ── */
-.stCheckbox label {{ color: {TEXT2} !important; font-size: 0.82rem !important; }}
-
-/* ── Scrollbar ── */
-::-webkit-scrollbar {{ width: 5px; height: 5px; }}
-::-webkit-scrollbar-track {{ background: transparent; }}
-::-webkit-scrollbar-thumb {{
-    background: rgba(59,130,246,0.25);
-    border-radius: 4px;
+/* Footer */
+.footer {{
+    text-align:center; padding:10px 0; margin-top:8px;
+    font-size:0.71rem; color:{TEXT2};
+    border-top:1px solid {BORDER};
 }}
-::-webkit-scrollbar-thumb:hover {{ background: rgba(59,130,246,0.45); }}
+.footer b {{ color:{ACCENT2}; }}
 
-/* ── Alerts ── */
-.stSuccess > div {{ border-radius: 10px !important; background: rgba(16,185,129,0.1) !important; border-color: rgba(16,185,129,0.3) !important; }}
-.stError   > div {{ border-radius: 10px !important; background: rgba(239,68,68,0.1) !important; border-color: rgba(239,68,68,0.3) !important; }}
-.stWarning > div {{ border-radius: 10px !important; background: rgba(245,158,11,0.1) !important; border-color: rgba(245,158,11,0.3) !important; }}
-.stInfo    > div {{ border-radius: 10px !important; background: rgba(59,130,246,0.1) !important; border-color: rgba(59,130,246,0.3) !important; }}
+hr {{ border-color:{BORDER} !important; margin:10px 0 !important; }}
+::-webkit-scrollbar {{ width:4px; }}
+::-webkit-scrollbar-thumb {{ background:rgba(59,130,246,0.22); border-radius:4px; }}
+
+/* Alerts */
+div[data-baseweb="notification"] {{ border-radius:10px !important; font-size:0.85rem !important; }}
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── API helpers ───────────────────────────────────────────────────────────────
-def auth_headers():
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def hdr():
     t = st.session_state.access_token
     return {"Authorization": f"Bearer {t}"} if t else {}
 
-def api_post(ep, payload, timeout=30):
+def post(ep, body, timeout=30):
     try:
-        r = requests.post(f"{API_BASE}{ep}", json=payload, headers=auth_headers(), timeout=timeout)
-        r.raise_for_status()
-        return r.json()
+        r = requests.post(f"{API_BASE}{ep}", json=body, headers=hdr(), timeout=timeout)
+        r.raise_for_status(); return r.json()
     except requests.exceptions.ConnectionError:
-        st.error("Cannot reach the MedBotX API. Please start the backend server.")
-        return None
+        st.error("Cannot reach the API. Please start the backend server.")
     except requests.HTTPError as e:
-        try:   detail = e.response.json().get("detail", str(e))
+        try:    detail = e.response.json().get("detail", str(e))
         except: detail = str(e)
-        st.error(f"{detail}")
-        return None
+        st.error(detail)
+    return None
 
-def api_get(ep, params=None):
+def get(ep):
     try:
-        r = requests.get(f"{API_BASE}{ep}", headers=auth_headers(), params=params, timeout=15)
-        r.raise_for_status()
-        return r.json()
+        r = requests.get(f"{API_BASE}{ep}", headers=hdr(), timeout=15)
+        r.raise_for_status(); return r.json()
     except: return None
 
-def api_put(ep, payload, timeout=30):
+def put(ep, body):
     try:
-        r = requests.put(f"{API_BASE}{ep}", json=payload, headers=auth_headers(), timeout=timeout)
-        r.raise_for_status()
-        return r.json()
-    except requests.exceptions.ConnectionError:
-        st.error("Cannot reach the API.")
-        return None
+        r = requests.put(f"{API_BASE}{ep}", json=body, headers=hdr(), timeout=20)
+        r.raise_for_status(); return r.json()
     except requests.HTTPError as e:
-        try:   detail = e.response.json().get("detail", str(e))
+        try:    detail = e.response.json().get("detail", str(e))
         except: detail = str(e)
-        st.error(f"{detail}")
-        return None
+        st.error(detail)
+    except: st.error("API error")
+    return None
 
 def ensure_session():
     if not st.session_state.session_id:
-        d = api_post("/api/v1/chat/session/new", {})
+        d = post("/api/v1/chat/session/new", {})
         if d: st.session_state.session_id = d["session_id"]
 
 def load_profile():
-    d = api_get("/api/v1/memory/load")
+    d = get("/api/v1/memory/load")
     if d: st.session_state.medical_profile = d.get("medical_context", {})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
+#  SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
 
     # Logo
     st.markdown("""
     <div class="logo-card">
-        <span class="icon">🏥</span>
-        <h1>MedBotX</h1>
-        <p class="tagline">Advanced AI Medical Assistant</p>
-        <div class="online-badge">
-            <span class="online-dot"></span> Online & Ready
-        </div>
+        <div class="logo-icon">🏥</div>
+        <h2>MedBotX</h2>
+        <div class="sub">Advanced AI Medical Assistant</div>
+        <div class="badge"><span class="bdot"></span> Online &amp; Ready</div>
     </div>
     """, unsafe_allow_html=True)
 
     # Dark / Light toggle
-    col_t1, col_t2 = st.columns([3,2])
-    with col_t1:
-        st.markdown(f'<p class="section-label">Appearance</p>', unsafe_allow_html=True)
-    with col_t2:
-        new_mode = st.toggle("Dark", value=st.session_state.dark_mode, label_visibility="collapsed")
-        if new_mode != st.session_state.dark_mode:
-            st.session_state.dark_mode = new_mode
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
+        st.markdown(f'<p style="font-size:0.75rem;color:{TEXT2};margin:8px 0 4px;">🌙 Dark &nbsp; ☀️ Light</p>', unsafe_allow_html=True)
+    with col_b:
+        new_dark = st.toggle("", value=D, key="theme_toggle", label_visibility="collapsed")
+        if new_dark != D:
+            st.session_state.dark_mode = new_dark
             st.rerun()
-    st.markdown(f'<p style="font-size:0.75rem;color:{TEXT2};margin-top:-8px;">{"🌙 Dark mode" if D else "☀️ Light mode"}</p>', unsafe_allow_html=True)
 
     st.divider()
 
     # ── AUTH ──────────────────────────────────────────────────────────────────
     if not st.session_state.username:
-        st.markdown(f'<p class="section-label">Account</p>', unsafe_allow_html=True)
-        tab = st.radio("", ["Guest", "Sign In", "Register"], horizontal=True, label_visibility="collapsed")
+        st.markdown(f'<p class="sec">Account</p>', unsafe_allow_html=True)
+        mode = st.radio("mode", ["Guest", "Sign In", "Register"],
+                        horizontal=True, label_visibility="collapsed")
 
-        if tab == "Sign In":
-            with st.form("lf", clear_on_submit=False):
+        if mode == "Sign In":
+            with st.form("lf"):
                 un = st.text_input("Username", placeholder="your_username")
                 pw = st.text_input("Password", type="password", placeholder="••••••••")
                 if st.form_submit_button("Sign In →"):
                     if un and pw:
-                        d = api_post("/api/v1/auth/login", {"username": un, "password": pw})
+                        d = post("/api/v1/auth/login", {"username": un, "password": pw})
                         if d:
                             st.session_state.access_token = d["access_token"]
                             st.session_state.username = un
-                            me = api_get("/api/v1/auth/me")
+                            me = get("/api/v1/auth/me")
                             if me: st.session_state.user_id = me["id"]
                             load_profile()
                             st.success(f"Welcome back, {un}!")
                             st.rerun()
                     else:
-                        st.warning("Please fill in all fields.")
+                        st.warning("Fill in all fields.")
 
-        elif tab == "Register":
-            with st.form("rf", clear_on_submit=False):
+        elif mode == "Register":
+            with st.form("rf"):
                 un = st.text_input("Username", placeholder="choose_username")
-                em = st.text_input("Email", placeholder="you@email.com")
+                em = st.text_input("Email",    placeholder="you@email.com")
                 pw = st.text_input("Password", type="password", placeholder="Min 8 characters")
                 if st.form_submit_button("Create Account →"):
                     if un and em and pw:
-                        d = api_post("/api/v1/auth/register", {"username": un, "email": em, "password": pw})
-                        if d:
-                            st.success("✅ Account created! Now sign in.")
+                        d = post("/api/v1/auth/register",
+                                 {"username": un, "email": em, "password": pw})
+                        if d: st.success("✅ Account created! Now sign in.")
                     else:
-                        st.warning("Please fill in all fields.")
-
+                        st.warning("Fill in all fields.")
         else:
-            st.info("💬 Chatting as guest. Sign in to save history and medical profile permanently.")
+            st.info("💬 Guest mode — history is session only. Sign in to save everything permanently.")
 
     else:
-        # Logged-in user chip
-        initials = st.session_state.username[0].upper()
+        # User chip
+        init = st.session_state.username[0].upper()
         st.markdown(f"""
-        <div class="user-chip">
-            <div class="user-avatar">{initials}</div>
-            <div class="user-info">
-                <div class="name">{st.session_state.username}</div>
-                <div class="role">✓ Authenticated · Memory Active</div>
+        <div class="uchip">
+            <div class="uav">{init}</div>
+            <div>
+                <div class="uname">{st.session_state.username}</div>
+                <div class="urole">✓ Authenticated · Memory Active</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        if st.button("Sign Out", key="signout"):
+        if st.button("Sign Out"):
             for k in ["access_token","username","user_id","messages","session_id","medical_profile"]:
                 st.session_state[k] = [] if k == "messages" else ({} if k == "medical_profile" else None)
             st.rerun()
 
         st.divider()
 
-        # ── Health Profile ────────────────────────────────────────────────────
-        st.markdown(f'<p class="section-label">🩺 Health Profile</p>', unsafe_allow_html=True)
+        # ── Health Profile inside expander ────────────────────────────────────
+        st.markdown(f'<p class="sec">🩺 Health Profile</p>', unsafe_allow_html=True)
 
         prof = st.session_state.medical_profile
-        with st.expander("View / Edit my health info", expanded=False):
-            with st.form("hf", clear_on_submit=False):
-                age   = st.number_input("Age",
-                    min_value=0, max_value=120,
-                    value=int(prof.get("age", 0) or 0))
-                blood = st.selectbox("Blood Type",
-                    ["", "A+","A-","B+","B-","AB+","AB-","O+","O-"],
-                    index=(["","A+","A-","B+","B-","AB+","AB-","O+","O-"].index(prof.get("blood_type","")) if prof.get("blood_type") in ["","A+","A-","B+","B-","AB+","AB-","O+","O-"] else 0))
-                allerg = st.text_area("Allergies (comma-separated)",
-                    value=", ".join(prof.get("allergies", [])),
-                    placeholder="e.g. Penicillin, Peanuts", height=68)
-                conds  = st.text_area("Medical Conditions",
-                    value=", ".join(prof.get("conditions", [])),
-                    placeholder="e.g. Diabetes Type 2, Hypertension", height=68)
-                meds   = st.text_area("Current Medications",
-                    value=", ".join(prof.get("medications", [])),
-                    placeholder="e.g. Metformin 500mg, Lisinopril", height=68)
-                notes  = st.text_area("Notes for Doctor",
-                    value=prof.get("notes",""),
-                    placeholder="Any other health notes...", height=60)
 
-                if st.form_submit_button("💾 Save Health Profile"):
-                    payload = {
-                        "age":        int(age) if age and age > 0 else None,
-                        "blood_type": blood or None,
-                        "allergies":  [a.strip() for a in allerg.split(",") if a.strip()],
-                        "conditions": [c.strip() for c in conds.split(",")  if c.strip()],
-                        "medications":[m.strip() for m in meds.split(",")   if m.strip()],
-                        "notes":      notes.strip() or None,
-                    }
-                    r = api_put("/api/v1/memory/medical-context", payload)
-                    if r:
-                        st.session_state.medical_profile = r.get("medical_context", payload)
-                        st.success("✅ Health profile saved!")
-
-        # Show profile summary if filled
+        # Summary outside expander
         if prof:
             items = []
-            if prof.get("age"):        items.append(f"Age {prof['age']}")
-            if prof.get("blood_type"): items.append(f"Blood {prof['blood_type']}")
-            if prof.get("conditions"): items.append(f"{len(prof['conditions'])} condition(s)")
-            if prof.get("medications"):items.append(f"{len(prof['medications'])} medication(s)")
+            if prof.get("age"):         items.append(f"Age {prof['age']}")
+            if prof.get("blood_type"):  items.append(f"Blood {prof['blood_type']}")
+            if prof.get("allergies"):   items.append(f"{len(prof['allergies'])} allerg.")
+            if prof.get("medications"): items.append(f"{len(prof['medications'])} meds")
             if items:
-                summary = " · ".join(items)
-                st.markdown(f'<p style="font-size:0.75rem;color:{TEXT2};padding:4px 0;">{summary}</p>', unsafe_allow_html=True)
+                st.markdown(f'<p style="font-size:0.73rem;color:{TEXT2};margin:0 0 8px 0;">{" · ".join(items)}</p>',
+                            unsafe_allow_html=True)
+
+        with st.expander("✏️ Edit Health Profile", expanded=False):
+            with st.form("hf", clear_on_submit=False):
+                age   = st.number_input("Age", min_value=0, max_value=120,
+                                        value=int(prof.get("age") or 0))
+                blood = st.selectbox("Blood Type",
+                    ["","A+","A-","B+","B-","AB+","AB-","O+","O-"],
+                    index=(["","A+","A-","B+","B-","AB+","AB-","O+","O-"].index(
+                        prof.get("blood_type","") or ""
+                    ) if (prof.get("blood_type","") or "") in
+                          ["","A+","A-","B+","B-","AB+","AB-","O+","O-"] else 0))
+                allerg = st.text_area("Allergies (comma-separated)",
+                    value=", ".join(prof.get("allergies") or []),
+                    placeholder="e.g. Penicillin, Peanuts", height=60)
+                conds = st.text_area("Medical Conditions",
+                    value=", ".join(prof.get("conditions") or []),
+                    placeholder="e.g. Diabetes Type 2", height=60)
+                meds  = st.text_area("Current Medications",
+                    value=", ".join(prof.get("medications") or []),
+                    placeholder="e.g. Metformin 500mg", height=60)
+                notes = st.text_area("Notes",
+                    value=prof.get("notes") or "",
+                    placeholder="Any other health notes...", height=50)
+
+                if st.form_submit_button("💾 Save Profile"):
+                    payload = {
+                        "age":         int(age) if age and age > 0 else None,
+                        "blood_type":  blood or None,
+                        "allergies":   [a.strip() for a in allerg.split(",") if a.strip()],
+                        "conditions":  [c.strip() for c in conds.split(",")  if c.strip()],
+                        "medications": [m.strip() for m in meds.split(",")   if m.strip()],
+                        "notes":       notes.strip() or None,
+                    }
+                    r = put("/api/v1/memory/medical-context", payload)
+                    if r:
+                        st.session_state.medical_profile = r.get("medical_context", payload)
+                        st.success("✅ Profile saved!")
 
     st.divider()
 
-    # Disclaimer
+    # Disclaimer + footer
     st.markdown(f"""
-    <div class="disclaimer">
+    <div class="disc">
         ⚠️ <strong>Medical Disclaimer</strong><br>
-        MedBotX provides general health information only — not a substitute for professional medical advice,
-        diagnosis, or treatment. Always consult a qualified healthcare provider.
+        MedBotX provides general health information only —
+        not a substitute for professional medical advice.
+        Always consult a qualified doctor.
     </div>
-    <div class="dev-footer" style="margin-top:14px;">
-        Developed by <span class="name">Bhaskar Shivaji Kumbhar</span><br>
-        <span style="font-size:0.65rem;opacity:0.5;">MedBotX v1.0.0 · 2026</span>
+    <div class="footer" style="margin-top:12px;">
+        Developed by <b>Bhaskar Shivaji Kumbhar</b><br>
+        <span style="font-size:0.63rem;opacity:0.5;">MedBotX v1.0.0 · 2026</span>
     </div>
     """, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN AREA
+#  MAIN CONTENT
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Top bar ──────────────────────────────────────────────────────────────────
-user_label  = st.session_state.username or "Guest"
-mem_label   = "Permanent" if st.session_state.access_token else "Session"
-msg_count   = len([m for m in st.session_state.messages if m["role"] == "human"])
+user_label = st.session_state.username or "Guest"
+mem_label  = "Permanent DB" if st.session_state.access_token else "Session only"
+q_count    = len([m for m in st.session_state.messages if m["role"] == "human"])
 
+# ── Top bar ───────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div class="topbar">
-    <div class="topbar-left">
-        <h2>🏥 MedBotX &nbsp;—&nbsp; AI Medical Assistant</h2>
-        <p>Ask about symptoms, medications, conditions, diet, or general health</p>
+    <div>
+        <h1>🏥 MedBotX &nbsp;·&nbsp; AI Medical Assistant</h1>
+        <p>Ask about symptoms, medications, conditions, nutrition, or general wellness</p>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
 # ── KPI row ───────────────────────────────────────────────────────────────────
-st.markdown(f"""
-<div class="kpi-row">
-    <div class="kpi-card">
-        <div class="kpi-icon">👤</div>
-        <div class="kpi-val">{user_label}</div>
-        <div class="kpi-label">Logged in as</div>
-        <div class="kpi-accent" style="background:{ACCENT};"></div>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-icon">🧠</div>
-        <div class="kpi-val">{mem_label}</div>
-        <div class="kpi-label">Memory Type</div>
-        <div class="kpi-accent" style="background:#7c3aed;"></div>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-icon">💬</div>
-        <div class="kpi-val">{msg_count}</div>
-        <div class="kpi-label">Questions Asked</div>
-        <div class="kpi-accent" style="background:#0891b2;"></div>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-icon">🟢</div>
-        <div class="kpi-val">Online</div>
-        <div class="kpi-label">System Status</div>
-        <div class="kpi-accent" style="background:{SUCCESS};"></div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+k1, k2, k3, k4 = st.columns(4)
+with k1:
+    st.markdown(f'<div class="kpi"><div class="ki">👤</div><div class="kv">{user_label}</div><div class="kl">User</div></div>', unsafe_allow_html=True)
+with k2:
+    st.markdown(f'<div class="kpi"><div class="ki">🧠</div><div class="kv">{mem_label}</div><div class="kl">Memory</div></div>', unsafe_allow_html=True)
+with k3:
+    st.markdown(f'<div class="kpi"><div class="ki">💬</div><div class="kv">{q_count}</div><div class="kl">Questions</div></div>', unsafe_allow_html=True)
+with k4:
+    st.markdown(f'<div class="kpi"><div class="ki">🟢</div><div class="kv">Online</div><div class="kl">Status</div></div>', unsafe_allow_html=True)
 
-st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-st.divider()
+st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-# ── Chat messages ─────────────────────────────────────────────────────────────
+# ── Chat area ─────────────────────────────────────────────────────────────────
 if not st.session_state.messages:
     st.markdown(f"""
-    <div class="welcome-wrap">
-        <div class="hero-icon">🩺</div>
+    <div class="welcome">
+        <span class="wi">🩺</span>
         <h2>How can I help you today?</h2>
-        <p class="sub">
-            I'm MedBotX, your AI-powered medical information assistant.<br>
-            Ask me about symptoms, medications, health conditions, nutrition, or wellness tips.<br>
-            I always recommend consulting a doctor for personal medical decisions.
-        </p>
-        <div class="chips-grid">
-            <div class="chip"><span class="chip-icon">🤒</span> What are symptoms of Type 2 Diabetes?</div>
-            <div class="chip"><span class="chip-icon">💊</span> Side effects of Ibuprofen?</div>
-            <div class="chip"><span class="chip-icon">❤️</span> How to lower blood pressure naturally?</div>
-            <div class="chip"><span class="chip-icon">😴</span> Why am I always feeling tired?</div>
-            <div class="chip"><span class="chip-icon">🧬</span> What is cholesterol and why does it matter?</div>
-            <div class="chip"><span class="chip-icon">🍎</span> Best diet for someone with hypertension?</div>
+        <p>I'm MedBotX — your AI-powered medical information assistant.<br>
+        Ask me about symptoms, medications, health conditions, nutrition, or wellness tips.</p>
+        <div class="chips">
+            <div class="chip">🤒 What are the symptoms of Type 2 Diabetes?</div>
+            <div class="chip">💊 What are common side effects of Ibuprofen?</div>
+            <div class="chip">❤️ How to lower blood pressure naturally?</div>
+            <div class="chip">😴 Why do I feel tired all the time?</div>
+            <div class="chip">🧬 What is cholesterol and why does it matter?</div>
+            <div class="chip">🍎 Best diet for someone with hypertension?</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 else:
-    st.markdown('<div class="chat-area">', unsafe_allow_html=True)
+    # Render all messages using st.chat_message (handles markdown perfectly)
     for msg in st.session_state.messages:
-        role    = msg["role"]
-        content = msg["content"].replace("\n", "<br>")
-        ts      = msg.get("timestamp", "")
-        if role == "ai":
-            st.markdown(f"""
-            <div class="msg-wrap">
-                <div class="av bot">🤖</div>
-                <div class="bubble bot">{content}<div class="btime">{ts}</div></div>
-            </div>""", unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="msg-wrap user">
-                <div class="av usr">👤</div>
-                <div class="bubble usr">{content}<div class="btime">{ts}</div></div>
-            </div>""", unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+        role = "assistant" if msg["role"] == "ai" else "user"
+        avatar = "🤖" if role == "assistant" else "👤"
+        with st.chat_message(role, avatar=avatar):
+            st.markdown(msg["content"])
+            st.caption(msg.get("timestamp", ""))
 
-# ── Input bar ─────────────────────────────────────────────────────────────────
-st.divider()
-st.markdown('<div class="input-section">', unsafe_allow_html=True)
-with st.form("chat_form", clear_on_submit=True):
-    cols = st.columns([10, 1])
-    with cols[0]:
-        user_input = st.text_input(
-            "msg", placeholder="Ask your medical question here...",
-            label_visibility="collapsed")
-    with cols[1]:
-        st.markdown('<div class="send-btn">', unsafe_allow_html=True)
-        send = st.form_submit_button("➤")
-        st.markdown('</div>', unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
+# ── Chat input ────────────────────────────────────────────────────────────────
+user_input = st.chat_input("Ask your medical question here...", key="chat_input")
 
-if send and user_input.strip():
+if user_input and user_input.strip():
     ensure_session()
+    ts = datetime.now().strftime("%I:%M %p")
+
     st.session_state.messages.append({
-        "role": "human", "content": user_input.strip(),
-        "timestamp": datetime.now().strftime("%I:%M %p"),
+        "role": "human", "content": user_input.strip(), "timestamp": ts,
     })
-    with st.spinner("MedBotX is thinking..."):
-        data = api_post("/api/v1/chat/", {
-            "message": user_input.strip(),
-            "session_id": st.session_state.session_id,
-        })
-    if data:
-        st.session_state.session_id = data["session_id"]
-        st.session_state.messages.append({
-            "role": "ai", "content": data["response"],
-            "timestamp": datetime.now().strftime("%I:%M %p"),
-        })
-    st.rerun()
+
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(user_input.strip())
+        st.caption(ts)
+
+    with st.chat_message("assistant", avatar="🤖"):
+        with st.spinner(""):
+            data = post("/api/v1/chat/", {
+                "message": user_input.strip(),
+                "session_id": st.session_state.session_id,
+            })
+        if data:
+            st.session_state.session_id = data["session_id"]
+            ai_ts = datetime.now().strftime("%I:%M %p")
+            st.markdown(data["response"])
+            st.caption(ai_ts)
+            st.session_state.messages.append({
+                "role": "ai", "content": data["response"], "timestamp": ai_ts,
+            })
+        else:
+            err = "I'm having trouble connecting right now. Please try again."
+            st.markdown(err)
+            st.session_state.messages.append({
+                "role": "ai", "content": err, "timestamp": ts,
+            })
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown(f"""
-<div style="text-align:center;padding:12px 0 4px;font-size:0.72rem;color:{TEXT2};
-border-top:1px solid {BORDER};margin-top:12px;">
-    MedBotX &nbsp;·&nbsp; Developed by
-    <span style="color:{ACCENT2};font-weight:700;">Bhaskar Shivaji Kumbhar</span>
+<div class="footer">
+    MedBotX &nbsp;·&nbsp; Developed by <b>Bhaskar Shivaji Kumbhar</b>
     &nbsp;·&nbsp; For informational purposes only &nbsp;·&nbsp;
-    Always consult a healthcare professional
+    Always consult a qualified healthcare professional
 </div>
 """, unsafe_allow_html=True)
