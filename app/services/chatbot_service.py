@@ -10,7 +10,7 @@ Orchestrates:
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from langchain.schema import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
