@@ -57,10 +57,12 @@ def create_app() -> FastAPI:
     # ── Global Exception Handler ────────────────────────────────────────────
     @app.exception_handler(Exception)
     async def global_exception_handler(request, exc):
+        import logging
+        logging.getLogger("medbotx").error(f"Unhandled exception: {exc}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={
-                "detail": "An internal error occurred. Please try again.",
+                "detail": str(exc) if settings.DEBUG else "An internal error occurred. Please try again.",
                 "app": settings.APP_NAME,
                 "developer": settings.DEVELOPER,
             },
