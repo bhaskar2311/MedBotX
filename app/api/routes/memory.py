@@ -74,8 +74,8 @@ async def update_medical_context(
     db: AsyncSession = Depends(get_db),
 ):
     """Update the user's stored medical context (allergies, conditions, medications)."""
-    if payload.user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    # Always use the authenticated user — ignore any user_id in the body
+    _ = payload.user_id  # accepted but not trusted
 
     context_patch = {}
     if payload.allergies is not None:

@@ -1,16 +1,17 @@
 @echo off
-title MedBotX Frontend
-cd /d "c:\Users\bhask\Euron Projects\MedBotX - Advanced Medical Chatbot with Memory"
+title MedBotX - Frontend
+cd /d "%~dp0"
 echo.
 echo  ==========================================
-echo   MedBotX - Frontend (Streamlit)
+echo   MedBotX Frontend Starting...
 echo   Developed by Bhaskar Shivaji Kumbhar
 echo  ==========================================
 echo.
-echo  Opening at http://localhost:8501
+echo  Frontend will open at: http://localhost:8501
 echo.
-echo  Keep this window OPEN while using the app
+echo  >>> Keep this window OPEN <<<
 echo.
-call venv\Scripts\activate
-python -m streamlit run frontend/app.py --server.port 8501
+venv\Scripts\python.exe -m streamlit run frontend/app.py --server.port 8501
+echo.
+echo  Frontend stopped. Press any key to close.
 pause

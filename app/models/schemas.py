@@ -110,7 +110,7 @@ class MemoryLoadResponse(BaseModel):
 
 
 class MedicalContextUpdateRequest(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None   # optional – backend uses JWT user if omitted
     allergies: Optional[List[str]] = None
     conditions: Optional[List[str]] = None
     medications: Optional[List[str]] = None
