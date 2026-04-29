@@ -27,6 +27,7 @@ DEFAULTS = {
     "chat_history":     [],    # saved sessions: [{title, messages, ts, count}]
     "oai_history":      [],    # OpenAI format: [{role, content}]
     "drug_checks":      [],    # drug checker history: [{drugs, result, ts}]
+    "reminders":        [],    # medication reminders: [{name, dose, time, freq, note, active}]
     "health_profile": {
         "name": "", "age": "", "blood_type": "",
         "allergies": "", "conditions": "", "medications": "", "notes": "",
@@ -129,6 +130,84 @@ Respond ONLY with valid JSON. No markdown, no extra text."""
         return {"error": "Could not parse response. Please try again.", "raw": raw}
     except Exception as e:
         return {"error": str(e)}
+
+# ── Symptom Checker ───────────────────────────────────────────────────────────
+def check_symptoms(symptoms: str, age: str, gender: str) -> dict:
+    if not API_KEY:
+        return {"error": "No API key configured."}
+    client = OpenAI(api_key=API_KEY)
+    prompt = f"""You are a clinical triage AI. A patient reports these symptoms: {symptoms}
+Patient info — Age: {age or 'unknown'}, Gender: {gender or 'unknown'}.
+
+Respond ONLY with valid JSON in this exact format:
+{{
+  "urgency": "EMERGENCY" | "URGENT" | "MODERATE" | "LOW",
+  "urgency_reason": "One sentence on why this urgency level",
+  "possible_conditions": [
+    {{"name": "Condition name", "likelihood": "High/Medium/Low", "description": "Brief description"}}
+  ],
+  "red_flags": ["List any alarming symptoms that need immediate attention"],
+  "recommended_actions": ["Action 1", "Action 2"],
+  "home_care": ["Home care tip 1", "Home care tip 2"],
+  "see_doctor_within": "Immediately / 24 hours / 2-3 days / When convenient"
+}}
+Provide 2-4 possible conditions. No markdown, just JSON."""
+
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=1200,
+        )
+        raw = resp.choices[0].message.content.strip()
+        raw = re.sub(r'^```json\s*', '', raw)
+        raw = re.sub(r'\s*```$', '', raw)
+        return json.loads(raw)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── Medical Report Summarizer ──────────────────────────────────────────────────
+def summarize_report(report_text: str) -> dict:
+    if not API_KEY:
+        return {"error": "No API key configured."}
+    client = OpenAI(api_key=API_KEY)
+    prompt = f"""You are a medical report interpreter helping a patient understand their report.
+Report text:
+\"\"\"
+{report_text[:4000]}
+\"\"\"
+
+Respond ONLY with valid JSON:
+{{
+  "title": "Type of report (e.g. Blood Test, MRI, X-Ray)",
+  "summary": "Plain English 2-3 sentence summary",
+  "key_findings": [
+    {{"parameter": "Test name", "value": "Result", "normal_range": "Normal range", "status": "Normal/High/Low/Abnormal", "meaning": "What this means"}}
+  ],
+  "abnormal_count": 0,
+  "overall_impression": "Overall health impression in plain language",
+  "follow_up": ["Suggested follow-up action 1", "action 2"],
+  "consult_specialist": true | false,
+  "specialist_type": "e.g. Cardiologist, Endocrinologist, or null"
+}}
+No markdown, just JSON."""
+
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=1800,
+        )
+        raw = resp.choices[0].message.content.strip()
+        raw = re.sub(r'^```json\s*', '', raw)
+        raw = re.sub(r'\s*```$', '', raw)
+        return json.loads(raw)
+    except Exception as e:
+        return {"error": str(e)}
+
 
 # ── Markdown renderer ─────────────────────────────────────────────────────────
 def md_to_html(text: str) -> str:
@@ -655,7 +734,14 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_chat, tab_drug = st.tabs(["💬  Chat", "💊  Drug Interaction Checker"])
+tab_chat, tab_drug, tab_sym, tab_bmi, tab_med, tab_rep = st.tabs([
+    "💬  Chat",
+    "💊  Drug Checker",
+    "🩺  Symptom Checker",
+    "⚖️  BMI & Health",
+    "⏰  Med Reminders",
+    "📋  Report Analyser",
+])
 
 # ── TAB 1: Chat ────────────────────────────────────────────────────────────────
 with tab_chat:
@@ -928,6 +1014,565 @@ with tab_drug:
                 </div>
             </div>
             """, unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TAB 3 — SYMPTOM CHECKER
+# ══════════════════════════════════════════════════════════════════════════════
+URG_COLOR = {"EMERGENCY": "#ef4444", "URGENT": "#f97316", "MODERATE": "#facc15", "LOW": "#22c55e"}
+URG_ICON  = {"EMERGENCY": "🚨", "URGENT": "🔶", "MODERATE": "⚠️", "LOW": "✅"}
+
+with tab_sym:
+    st.markdown("""
+    <div style="margin-bottom:1rem;">
+        <h2 style="color:#e2e8f0;margin:0;font-size:1.4rem;">🩺 Symptom Checker</h2>
+        <p style="color:#94a3b8;margin:0.3rem 0 0;font-size:0.9rem;">
+            Describe your symptoms and get an AI-powered triage assessment with possible conditions.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    sc1, sc2, sc3 = st.columns([3, 1, 1])
+    with sc1:
+        sym_input = st.text_area(
+            "Describe your symptoms",
+            placeholder="e.g. I have had a headache for 2 days, fever 38.5°C, stiff neck and sensitivity to light...",
+            height=100, key="sym_input", label_visibility="collapsed",
+        )
+    with sc2:
+        sym_age = st.text_input("Age", placeholder="e.g. 35",
+                                value=st.session_state.health_profile.get("age", ""),
+                                key="sym_age", label_visibility="collapsed")
+    with sc3:
+        sym_gender = st.selectbox("Gender", ["", "Male", "Female", "Other"],
+                                  key="sym_gender", label_visibility="collapsed")
+
+    sym_btn = st.button("🔍  Analyse Symptoms", type="primary", key="sym_btn")
+
+    if sym_btn and sym_input.strip():
+        with st.spinner("Analysing your symptoms…"):
+            sym_result = check_symptoms(sym_input.strip(), sym_age, sym_gender)
+
+        if "error" in sym_result:
+            st.error(sym_result["error"])
+        else:
+            urg      = sym_result.get("urgency", "LOW")
+            urg_col  = URG_COLOR.get(urg, "#22c55e")
+            urg_ico  = URG_ICON.get(urg, "✅")
+            urg_why  = sym_result.get("urgency_reason", "")
+            see_when = sym_result.get("see_doctor_within", "")
+            conditions = sym_result.get("possible_conditions", [])
+            red_flags  = sym_result.get("red_flags", [])
+            actions    = sym_result.get("recommended_actions", [])
+            home_care  = sym_result.get("home_care", [])
+
+            if urg == "EMERGENCY":
+                st.markdown("""
+                <div style="background:#450a0a;border:2px solid #ef4444;border-radius:10px;
+                            padding:1rem 1.2rem;margin-bottom:1rem;text-align:center;">
+                    <span style="font-size:2rem;">🚨</span>
+                    <div style="color:#ef4444;font-size:1.2rem;font-weight:700;margin:0.3rem 0;">
+                        EMERGENCY — Call 112 / 911 Immediately
+                    </div>
+                    <div style="color:#fca5a5;font-size:0.9rem;">These symptoms may indicate a life-threatening condition.</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Urgency banner
+            st.markdown(f"""
+            <div style="background:rgba(255,255,255,0.04);border:1px solid {urg_col}44;
+                        border-left:4px solid {urg_col};border-radius:10px;
+                        padding:0.9rem 1.2rem;margin-bottom:1.2rem;
+                        display:flex;align-items:center;gap:1rem;">
+                <span style="font-size:1.8rem;">{urg_ico}</span>
+                <div>
+                    <div style="color:{urg_col};font-weight:700;font-size:1rem;">Urgency: {urg}</div>
+                    <div style="color:#94a3b8;font-size:0.88rem;">{urg_why}</div>
+                    <div style="color:#64748b;font-size:0.8rem;margin-top:0.2rem;">
+                        See a doctor: <strong style="color:{urg_col};">{see_when}</strong>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Red flags
+            if red_flags:
+                flags_html = "".join(f'<li style="color:#fca5a5;font-size:0.88rem;">{f}</li>' for f in red_flags)
+                st.markdown(f"""
+                <div style="background:#1c0a0a;border:1px solid #ef444433;border-radius:10px;
+                            padding:0.8rem 1rem;margin-bottom:1rem;">
+                    <div style="color:#ef4444;font-size:0.75rem;text-transform:uppercase;
+                                letter-spacing:0.06em;margin-bottom:0.4rem;">⚠ Red Flag Symptoms</div>
+                    <ul style="margin:0;padding-left:1.2rem;">{flags_html}</ul>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Possible conditions
+            if conditions:
+                st.markdown('<h4 style="color:#94a3b8;font-size:0.85rem;text-transform:uppercase;'
+                            'letter-spacing:0.06em;margin:0 0 0.6rem;">Possible Conditions</h4>',
+                            unsafe_allow_html=True)
+                LIKE_COLOR = {"High": "#ef4444", "Medium": "#f97316", "Low": "#22c55e"}
+                for cond in conditions:
+                    lk    = cond.get("likelihood", "Low")
+                    lk_c  = LIKE_COLOR.get(lk, "#94a3b8")
+                    st.markdown(f"""
+                    <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;
+                                padding:0.8rem 1rem;margin-bottom:0.6rem;
+                                display:flex;justify-content:space-between;align-items:flex-start;">
+                        <div style="flex:1;">
+                            <div style="color:#e2e8f0;font-weight:600;font-size:0.95rem;
+                                        margin-bottom:0.3rem;">{cond.get('name','')}</div>
+                            <div style="color:#94a3b8;font-size:0.85rem;">{cond.get('description','')}</div>
+                        </div>
+                        <span style="background:{lk_c}22;border:1px solid {lk_c}55;color:{lk_c};
+                                    padding:2px 10px;border-radius:20px;font-size:0.75rem;
+                                    font-weight:600;white-space:nowrap;margin-left:1rem;">{lk}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            # Recommended actions + home care side by side
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if actions:
+                    acts_html = "".join(f'<li style="color:#cbd5e1;font-size:0.88rem;margin-bottom:4px;">{a}</li>' for a in actions)
+                    st.markdown(f"""
+                    <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;
+                                padding:0.8rem 1rem;margin-top:0.6rem;">
+                        <div style="color:#7dd3fc;font-size:0.75rem;text-transform:uppercase;
+                                    letter-spacing:0.06em;margin-bottom:0.5rem;">Recommended Actions</div>
+                        <ul style="margin:0;padding-left:1.2rem;">{acts_html}</ul>
+                    </div>
+                    """, unsafe_allow_html=True)
+            with col_b:
+                if home_care:
+                    hc_html = "".join(f'<li style="color:#cbd5e1;font-size:0.88rem;margin-bottom:4px;">{h}</li>' for h in home_care)
+                    st.markdown(f"""
+                    <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;
+                                padding:0.8rem 1rem;margin-top:0.6rem;">
+                        <div style="color:#86efac;font-size:0.75rem;text-transform:uppercase;
+                                    letter-spacing:0.06em;margin-bottom:0.5rem;">Home Care Tips</div>
+                        <ul style="margin:0;padding-left:1.2rem;">{hc_html}</ul>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            st.markdown("""
+            <div style="background:rgba(255,255,255,0.02);border:1px solid #1e293b;
+                        border-radius:8px;padding:0.7rem 1rem;margin-top:1rem;">
+                <span style="color:#475569;font-size:0.78rem;">
+                    ⚠️ <strong style="color:#64748b;">Disclaimer:</strong>
+                    This is an AI triage aid, not a medical diagnosis. Always consult a qualified
+                    healthcare professional for proper evaluation.
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+
+    elif sym_btn:
+        st.info("Please describe your symptoms to get an assessment.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TAB 4 — BMI & HEALTH CALCULATOR
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_bmi:
+    st.markdown("""
+    <div style="margin-bottom:1rem;">
+        <h2 style="color:#e2e8f0;margin:0;font-size:1.4rem;">⚖️ BMI & Health Calculator</h2>
+        <p style="color:#94a3b8;margin:0.3rem 0 0;font-size:0.9rem;">
+            Calculate your BMI, ideal weight, calorie needs, and get personalised health insights.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    bc1, bc2 = st.columns(2)
+    with bc1:
+        b_weight = st.number_input("Weight (kg)", min_value=1.0, max_value=300.0,
+                                   value=70.0, step=0.5, key="b_weight")
+        b_height = st.number_input("Height (cm)", min_value=50.0, max_value=250.0,
+                                   value=170.0, step=0.5, key="b_height")
+    with bc2:
+        b_age    = st.number_input("Age (years)", min_value=1, max_value=120,
+                                   value=int(st.session_state.health_profile.get("age") or 30),
+                                   key="b_age")
+        b_gender = st.selectbox("Gender", ["Male", "Female"], key="b_gender")
+        b_act    = st.selectbox("Activity Level", [
+            "Sedentary (office job, little exercise)",
+            "Lightly active (light exercise 1-3 days/week)",
+            "Moderately active (moderate exercise 3-5 days/week)",
+            "Very active (hard exercise 6-7 days/week)",
+            "Extremely active (athlete, physical job)",
+        ], key="b_act")
+
+    calc_btn = st.button("📊  Calculate", type="primary", key="bmi_btn")
+
+    if calc_btn:
+        h_m  = b_height / 100
+        bmi  = round(b_weight / (h_m ** 2), 1)
+        if bmi < 18.5:   bmi_cat, bmi_col = "Underweight", "#facc15"
+        elif bmi < 25.0: bmi_cat, bmi_col = "Normal weight", "#22c55e"
+        elif bmi < 30.0: bmi_cat, bmi_col = "Overweight", "#f97316"
+        else:            bmi_cat, bmi_col = "Obese", "#ef4444"
+
+        # Ideal weight (Devine formula)
+        if b_gender == "Male":
+            ideal_low  = round(50 + 2.3 * ((b_height - 152.4) / 2.54), 1)
+        else:
+            ideal_low  = round(45.5 + 2.3 * ((b_height - 152.4) / 2.54), 1)
+        ideal_high = round(ideal_low + 8, 1)
+
+        # BMR (Mifflin-St Jeor)
+        if b_gender == "Male":
+            bmr = round(10 * b_weight + 6.25 * b_height - 5 * b_age + 5)
+        else:
+            bmr = round(10 * b_weight + 6.25 * b_height - 5 * b_age - 161)
+
+        act_mult = [1.2, 1.375, 1.55, 1.725, 1.9][["Sedentary", "Lightly", "Moderately", "Very", "Extremely"]
+                    .index(next(a for a in ["Sedentary","Lightly","Moderately","Very","Extremely"] if a in b_act))]
+        tdee     = round(bmr * act_mult)
+        lose_cal = tdee - 500
+        gain_cal = tdee + 300
+
+        # BMI meter visual
+        bmi_pct = min(max((bmi - 10) / (45 - 10) * 100, 0), 100)
+        st.markdown(f"""
+        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:12px;
+                    padding:1.2rem 1.5rem;margin-bottom:1rem;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.8rem;">
+                <span style="color:#94a3b8;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.06em;">Your BMI</span>
+                <span style="color:{bmi_col};font-size:2.2rem;font-weight:800;">{bmi}</span>
+            </div>
+            <div style="background:#1e293b;border-radius:20px;height:12px;margin-bottom:0.5rem;position:relative;">
+                <div style="position:absolute;left:0;top:0;height:100%;border-radius:20px;
+                            width:{bmi_pct}%;background:linear-gradient(90deg,#22c55e,#facc15,#f97316,#ef4444);"></div>
+                <div style="position:absolute;left:{bmi_pct}%;top:-4px;transform:translateX(-50%);
+                            width:20px;height:20px;background:{bmi_col};border-radius:50%;
+                            border:3px solid #0f172a;"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:#475569;">
+                <span>Underweight &lt;18.5</span><span>Normal 18.5–24.9</span>
+                <span>Overweight 25–29.9</span><span>Obese ≥30</span>
+            </div>
+            <div style="text-align:center;margin-top:0.8rem;">
+                <span style="background:{bmi_col}22;border:1px solid {bmi_col}55;color:{bmi_col};
+                            padding:4px 16px;border-radius:20px;font-weight:700;font-size:0.95rem;">{bmi_cat}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Stats grid
+        st.markdown(f"""
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.8rem;margin-bottom:1rem;">
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:0.9rem;text-align:center;">
+                <div style="color:#64748b;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;">Ideal Weight</div>
+                <div style="color:#7dd3fc;font-size:1.3rem;font-weight:700;">{ideal_low}–{ideal_high} kg</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:0.9rem;text-align:center;">
+                <div style="color:#64748b;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;">Basal Metabolic Rate</div>
+                <div style="color:#a5b4fc;font-size:1.3rem;font-weight:700;">{bmr} kcal/day</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:0.9rem;text-align:center;">
+                <div style="color:#64748b;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;">Daily Calorie Need</div>
+                <div style="color:#86efac;font-size:1.3rem;font-weight:700;">{tdee} kcal/day</div>
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-bottom:1rem;">
+            <div style="background:#0f172a;border:1px solid #22c55e33;border-radius:10px;padding:0.9rem;text-align:center;">
+                <div style="color:#64748b;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;">To Lose Weight (−0.5 kg/wk)</div>
+                <div style="color:#4ade80;font-size:1.2rem;font-weight:700;">{lose_cal} kcal/day</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #6366f133;border-radius:10px;padding:0.9rem;text-align:center;">
+                <div style="color:#64748b;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;">To Gain Weight (+0.3 kg/wk)</div>
+                <div style="color:#a5b4fc;font-size:1.2rem;font-weight:700;">{gain_cal} kcal/day</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Health tips based on BMI
+        tips = {
+            "Underweight": ["Increase calorie intake with nutrient-dense foods",
+                            "Include protein-rich foods: eggs, legumes, lean meat",
+                            "Consult a dietitian for a personalised meal plan",
+                            "Rule out underlying causes (thyroid, digestion issues)"],
+            "Normal weight": ["Maintain current habits — you're in a healthy range!",
+                              "Focus on balanced nutrition and regular exercise",
+                              "Aim for 150 min of moderate activity per week",
+                              "Annual health check-ups are recommended"],
+            "Overweight": ["Reduce refined carbohydrates and added sugars",
+                           "Aim for a 300–500 kcal daily deficit",
+                           "Include 30 min of brisk walking daily",
+                           "Stay well hydrated — drink 8 glasses of water"],
+            "Obese": ["Consult your doctor before starting any diet programme",
+                      "Small sustainable changes are more effective long-term",
+                      "Consider referral to a dietitian or weight-loss programme",
+                      "Monitor blood pressure, blood sugar, and cholesterol regularly"],
+        }
+        tips_html = "".join(f'<li style="color:#cbd5e1;font-size:0.88rem;margin-bottom:4px;">{t}</li>'
+                            for t in tips.get(bmi_cat, []))
+        st.markdown(f"""
+        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:0.9rem 1rem;">
+            <div style="color:#fbbf24;font-size:0.75rem;text-transform:uppercase;
+                        letter-spacing:0.06em;margin-bottom:0.5rem;">💡 Personalised Tips</div>
+            <ul style="margin:0;padding-left:1.2rem;">{tips_html}</ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TAB 5 — MEDICATION REMINDERS
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_med:
+    st.markdown("""
+    <div style="margin-bottom:1rem;">
+        <h2 style="color:#e2e8f0;margin:0;font-size:1.4rem;">⏰ Medication Reminders</h2>
+        <p style="color:#94a3b8;margin:0.3rem 0 0;font-size:0.9rem;">
+            Track your medications, doses, and schedules in one place.
+            Reminders are stored for this session.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Add reminder form
+    with st.expander("➕  Add New Medication", expanded=len(st.session_state.reminders) == 0):
+        rm1, rm2 = st.columns(2)
+        with rm1:
+            r_name = st.text_input("Medication Name", placeholder="e.g. Metformin 500mg", key="r_name")
+            r_dose = st.text_input("Dose", placeholder="e.g. 1 tablet", key="r_dose")
+            r_time = st.text_input("Time(s)", placeholder="e.g. 8:00 AM, 8:00 PM", key="r_time")
+        with rm2:
+            r_freq = st.selectbox("Frequency", [
+                "Once daily", "Twice daily", "Three times daily",
+                "Every 8 hours", "Every 12 hours", "Weekly", "As needed",
+            ], key="r_freq")
+            r_food = st.selectbox("With food?", ["With food", "Without food", "Doesn't matter"], key="r_food")
+            r_note = st.text_input("Notes", placeholder="e.g. For blood pressure", key="r_note")
+
+        add_rem = st.button("➕  Add Reminder", type="primary", key="add_rem_btn")
+        if add_rem and r_name.strip():
+            st.session_state.reminders.append({
+                "name": r_name.strip(), "dose": r_dose, "time": r_time,
+                "freq": r_freq, "food": r_food, "note": r_note, "active": True,
+                "added": datetime.now().strftime("%b %d, %Y"),
+            })
+            st.success(f"Reminder added for **{r_name.strip()}**")
+            st.rerun()
+        elif add_rem:
+            st.warning("Please enter a medication name.")
+
+    # Display reminders
+    if not st.session_state.reminders:
+        st.markdown("""
+        <div style="text-align:center;padding:2rem;color:#475569;">
+            <div style="font-size:2.5rem;margin-bottom:0.5rem;">💊</div>
+            <div style="font-size:1rem;color:#64748b;">No reminders added yet.</div>
+            <div style="font-size:0.85rem;margin-top:0.3rem;">Use the form above to add your medications.</div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        active   = [r for r in st.session_state.reminders if r.get("active")]
+        inactive = [r for r in st.session_state.reminders if not r.get("active")]
+
+        st.markdown(f'<p style="color:#64748b;font-size:0.8rem;margin:0 0 0.8rem;">'
+                    f'{len(active)} active · {len(inactive)} paused</p>', unsafe_allow_html=True)
+
+        for i, rem in enumerate(st.session_state.reminders):
+            is_active = rem.get("active", True)
+            op        = "0.5" if not is_active else "1"
+            col_r, col_tog, col_del = st.columns([6, 1, 1])
+            with col_r:
+                st.markdown(f"""
+                <div style="background:#0f172a;border:1px solid {'#334155' if is_active else '#1e293b'};
+                            border-radius:10px;padding:0.8rem 1rem;opacity:{op};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <div>
+                            <span style="color:#e2e8f0;font-weight:600;font-size:0.95rem;">💊 {rem['name']}</span>
+                            <span style="color:#64748b;font-size:0.8rem;margin-left:0.8rem;">{rem.get('added','')}</span>
+                        </div>
+                        <span style="background:{'#22c55e22' if is_active else '#1e293b'};
+                                    border:1px solid {'#22c55e55' if is_active else '#334155'};
+                                    color:{'#4ade80' if is_active else '#64748b'};
+                                    padding:2px 10px;border-radius:20px;font-size:0.72rem;">
+                            {'Active' if is_active else 'Paused'}
+                        </span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.4rem;margin-top:0.5rem;">
+                        <div><span style="color:#64748b;font-size:0.72rem;">Dose</span>
+                             <div style="color:#cbd5e1;font-size:0.85rem;">{rem.get('dose') or '—'}</div></div>
+                        <div><span style="color:#64748b;font-size:0.72rem;">Time</span>
+                             <div style="color:#cbd5e1;font-size:0.85rem;">{rem.get('time') or '—'}</div></div>
+                        <div><span style="color:#64748b;font-size:0.72rem;">Frequency</span>
+                             <div style="color:#cbd5e1;font-size:0.85rem;">{rem.get('freq') or '—'}</div></div>
+                    </div>
+                    {f'<div style="margin-top:0.4rem;color:#94a3b8;font-size:0.82rem;">📝 {rem["note"]}</div>' if rem.get("note") else ''}
+                    <div style="margin-top:0.3rem;color:#64748b;font-size:0.78rem;">🍽️ {rem.get('food','—')}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_tog:
+                lbl = "⏸️" if is_active else "▶️"
+                if st.button(lbl, key=f"tog_{i}", help="Pause/Resume"):
+                    st.session_state.reminders[i]["active"] = not is_active
+                    st.rerun()
+            with col_del:
+                if st.button("🗑️", key=f"del_{i}", help="Delete"):
+                    st.session_state.reminders.pop(i)
+                    st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TAB 6 — MEDICAL REPORT ANALYSER
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_rep:
+    st.markdown("""
+    <div style="margin-bottom:1rem;">
+        <h2 style="color:#e2e8f0;margin:0;font-size:1.4rem;">📋 Medical Report Analyser</h2>
+        <p style="color:#94a3b8;margin:0.3rem 0 0;font-size:0.9rem;">
+            Paste your medical report (blood test, MRI findings, pathology etc.) and get a plain-English
+            explanation of what it means.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    rep_text = st.text_area(
+        "Paste your report here",
+        placeholder="""Example:
+CBC Report:
+Haemoglobin: 10.2 g/dL (Normal: 13.5-17.5)
+WBC: 11,500 /μL (Normal: 4,500-11,000)
+Platelets: 420,000 /μL (Normal: 150,000-400,000)
+RBC: 3.8 million/μL (Normal: 4.5-5.9 million)
+Glucose (Fasting): 126 mg/dL (Normal: 70-100)""",
+        height=200, key="rep_text",
+    )
+
+    rep_btn = st.button("🔬  Analyse Report", type="primary", key="rep_btn")
+
+    if rep_btn and rep_text.strip():
+        with st.spinner("Analysing your medical report…"):
+            rep_result = summarize_report(rep_text.strip())
+
+        if "error" in rep_result:
+            st.error(rep_result["error"])
+        else:
+            title    = rep_result.get("title", "Medical Report")
+            summary  = rep_result.get("summary", "")
+            findings = rep_result.get("key_findings", [])
+            abn_cnt  = rep_result.get("abnormal_count", 0)
+            overall  = rep_result.get("overall_impression", "")
+            followup = rep_result.get("follow_up", [])
+            consult  = rep_result.get("consult_specialist", False)
+            spec     = rep_result.get("specialist_type", "")
+
+            # Header
+            st.markdown(f"""
+            <div style="background:rgba(255,255,255,0.04);border:1px solid #334155;
+                        border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;">
+                <div style="color:#7dd3fc;font-size:0.75rem;text-transform:uppercase;
+                            letter-spacing:0.06em;margin-bottom:0.3rem;">{title}</div>
+                <p style="color:#e2e8f0;font-size:0.95rem;margin:0;">{summary}</p>
+                <div style="margin-top:0.6rem;display:flex;gap:1rem;flex-wrap:wrap;">
+                    <span style="color:#94a3b8;font-size:0.82rem;">
+                        🔍 <strong style="color:#e2e8f0;">{len(findings)}</strong> parameters checked
+                    </span>
+                    <span style="color:#94a3b8;font-size:0.82rem;">
+                        ⚠️ <strong style="color:{'#ef4444' if abn_cnt > 0 else '#22c55e'};">{abn_cnt}</strong> abnormal
+                    </span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Key findings table
+            if findings:
+                STATUS_COL = {"Normal": "#22c55e", "High": "#ef4444", "Low": "#facc15",
+                              "Abnormal": "#f97316", "Critical": "#dc2626"}
+                st.markdown('<h4 style="color:#94a3b8;font-size:0.82rem;text-transform:uppercase;'
+                            'letter-spacing:0.06em;margin:0 0 0.6rem;">Key Findings</h4>',
+                            unsafe_allow_html=True)
+                rows = ""
+                for f in findings:
+                    sc  = STATUS_COL.get(f.get("status", "Normal"), "#22c55e")
+                    rows += f"""
+                    <tr>
+                        <td style="padding:8px 10px;color:#e2e8f0;font-weight:500;">{f.get('parameter','')}</td>
+                        <td style="padding:8px 10px;color:#cbd5e1;">{f.get('value','')}</td>
+                        <td style="padding:8px 10px;color:#64748b;font-size:0.82rem;">{f.get('normal_range','')}</td>
+                        <td style="padding:8px 10px;text-align:center;">
+                            <span style="background:{sc}22;border:1px solid {sc}55;color:{sc};
+                                        padding:2px 8px;border-radius:12px;font-size:0.75rem;
+                                        font-weight:600;">{f.get('status','')}</span>
+                        </td>
+                        <td style="padding:8px 10px;color:#94a3b8;font-size:0.82rem;">{f.get('meaning','')}</td>
+                    </tr>"""
+                st.markdown(f"""
+                <div style="overflow-x:auto;margin-bottom:1rem;">
+                    <table style="width:100%;border-collapse:collapse;background:#0f172a;
+                                  border-radius:10px;overflow:hidden;">
+                        <thead>
+                            <tr style="background:#1e293b;">
+                                <th style="padding:8px 10px;text-align:left;color:#64748b;
+                                           font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Parameter</th>
+                                <th style="padding:8px 10px;text-align:left;color:#64748b;
+                                           font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Value</th>
+                                <th style="padding:8px 10px;text-align:left;color:#64748b;
+                                           font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Normal Range</th>
+                                <th style="padding:8px 10px;text-align:center;color:#64748b;
+                                           font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Status</th>
+                                <th style="padding:8px 10px;text-align:left;color:#64748b;
+                                           font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Meaning</th>
+                            </tr>
+                        </thead>
+                        <tbody>{rows}</tbody>
+                    </table>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Overall impression
+            if overall:
+                st.markdown(f"""
+                <div style="background:rgba(99,102,241,0.08);border:1px solid #6366f133;
+                            border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:0.8rem;">
+                    <div style="color:#a5b4fc;font-size:0.75rem;text-transform:uppercase;
+                                letter-spacing:0.06em;margin-bottom:0.3rem;">Overall Impression</div>
+                    <div style="color:#e2e8f0;font-size:0.92rem;">{overall}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Follow up
+            if followup:
+                fu_html = "".join(f'<li style="color:#cbd5e1;font-size:0.88rem;margin-bottom:4px;">{f}</li>' for f in followup)
+                st.markdown(f"""
+                <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;
+                            padding:0.8rem 1rem;margin-bottom:0.8rem;">
+                    <div style="color:#fbbf24;font-size:0.75rem;text-transform:uppercase;
+                                letter-spacing:0.06em;margin-bottom:0.5rem;">Follow-up Actions</div>
+                    <ul style="margin:0;padding-left:1.2rem;">{fu_html}</ul>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Consult specialist
+            if consult and spec:
+                st.markdown(f"""
+                <div style="background:#1c1207;border:1px solid #f9731655;border-radius:10px;
+                            padding:0.8rem 1rem;margin-bottom:0.8rem;">
+                    <span style="font-size:1rem;">🏥</span>
+                    <span style="color:#fdba74;font-weight:600;margin-left:0.5rem;">
+                        Consider consulting a <strong>{spec}</strong> based on these results.
+                    </span>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Disclaimer
+            st.markdown("""
+            <div style="background:rgba(255,255,255,0.02);border:1px solid #1e293b;
+                        border-radius:8px;padding:0.7rem 1rem;margin-top:0.5rem;">
+                <span style="color:#475569;font-size:0.78rem;">
+                    ⚠️ <strong style="color:#64748b;">Disclaimer:</strong>
+                    AI interpretation is for educational purposes only. Always have your reports
+                    reviewed by a qualified healthcare professional.
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+
+    elif rep_btn:
+        st.info("Please paste your medical report text above.")
+
 
 # Footer
 st.markdown("""
