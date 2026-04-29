@@ -1,0 +1,72 @@
+# MedBotX - Git Ignore
+# Developed by Bhaskar Shivaji Kumbhar
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ── Virtual Environment ───────────────────────────────────────────────────────
+venv/
+env/
+.env
+.venv/
+ENV/
+
+# ── Environment & Secrets ─────────────────────────────────────────────────────
+.env
+*.env.local
+*.env.production
+!.env.example
+
+# ── Database ──────────────────────────────────────────────────────────────────
+*.db
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── IDE / Editor ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+.docker/
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── Alembic ───────────────────────────────────────────────────────────────────
+alembic/versions/*.pyc
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.bak
+*.tmp
+node_modules/

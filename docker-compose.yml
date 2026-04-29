@@ -1,0 +1,70 @@
+# MedBotX - Docker Compose (Full Stack)
+# Developed by Bhaskar Shivaji Kumbhar
+
+version: "3.9"
+
+services:
+  # ── FastAPI Backend ──────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: medbotx-api
+    env_file: .env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./medbotx.db
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+      - medbotx_db:/app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - medbotx-net
+
+  # ── Streamlit Frontend ────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: medbotx-frontend
+    env_file: .env
+    environment:
+      - API_BASE_URL=http://api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - medbotx-net
+
+  # ── Redis (optional, for production session caching) ─────────────
+  redis:
+    image: redis:7-alpine
+    container_name: medbotx-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - medbotx-net
+    profiles:
+      - production
+
+volumes:
+  medbotx_db:
+  redis_data:
+
+networks:
+  medbotx-net:
+    driver: bridge
