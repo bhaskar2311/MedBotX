@@ -1,12 +1,18 @@
 """
-MedBotX – Dark Professional UI (Dark mode only)
+MedBotX — Advanced AI Medical Assistant
 Developed by Bhaskar Shivaji Kumbhar
+Direct OpenAI integration — no backend required
 """
-import os, re, requests
-import streamlit as st
+import os, re
 from datetime import datetime
+from openai import OpenAI
+import streamlit as st
+from dotenv import load_dotenv
 
-API_BASE = os.getenv("API_BASE_URL", "http://localhost:8000")
+load_dotenv()
+
+API_KEY = os.getenv("OPENAI_API_KEY", "")
+MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o")
 
 st.set_page_config(
     page_title="MedBotX — AI Medical Assistant",
@@ -15,586 +21,613 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-for k, v in {
-    "messages": [], "session_id": None,
-    "access_token": None, "username": None,
-    "user_id": None, "medical_profile": {},
-    "chat_history": [],   # list of past sessions: [{title, messages, ts}]
-}.items():
+# ── Session defaults ──────────────────────────────────────────────────────────
+DEFAULTS = {
+    "messages":      [],       # current chat: [{role, content, ts}]
+    "chat_history":  [],       # saved sessions: [{title, messages, ts, count}]
+    "oai_history":   [],       # OpenAI format: [{role, content}]
+    "health_profile": {
+        "name": "", "age": "", "blood_type": "",
+        "allergies": "", "conditions": "", "medications": "", "notes": "",
+    },
+}
+for k, v in DEFAULTS.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+# ── System prompt ─────────────────────────────────────────────────────────────
+def build_system_prompt():
+    p = st.session_state.health_profile
+    ctx_parts = []
+    if p.get("name"):        ctx_parts.append(f"Patient name: {p['name']}")
+    if p.get("age"):         ctx_parts.append(f"Age: {p['age']}")
+    if p.get("blood_type"):  ctx_parts.append(f"Blood type: {p['blood_type']}")
+    if p.get("allergies"):   ctx_parts.append(f"Known allergies: {p['allergies']}")
+    if p.get("conditions"):  ctx_parts.append(f"Medical conditions: {p['conditions']}")
+    if p.get("medications"): ctx_parts.append(f"Current medications: {p['medications']}")
+    if p.get("notes"):       ctx_parts.append(f"Notes: {p['notes']}")
+    ctx = ("\n\nPatient Health Context:\n" + "\n".join(ctx_parts)) if ctx_parts else ""
 
-*, html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
+    return f"""You are MedBotX, an advanced AI-powered medical information assistant.
+Developed by Bhaskar Shivaji Kumbhar.
 
-/* ── App background ── */
-.stApp, [data-testid="stAppViewContainer"] { background: #0b0f1a !important; }
-.main .block-container { padding: 1.4rem 2rem 0.5rem !important; max-width: 100% !important; }
-#MainMenu, footer, [data-testid="stToolbar"] { display: none !important; }
+Your role:
+• Provide accurate, evidence-based medical information
+• Answer questions about symptoms, medications, conditions, nutrition, and wellness
+• Maintain context across the conversation
+• Be compassionate, clear, and professional{ctx}
 
-/* ── Sidebar ── */
-[data-testid="stSidebar"] {
-    background: #0d1320 !important;
-    border-right: 1px solid #1a2a45;
-}
-[data-testid="stSidebarContent"] { padding: 1rem 0.9rem !important; }
-[data-testid="stSidebar"] * { color: #e2e8f0 !important; }
+STRICT SAFETY RULES:
+1. NEVER diagnose — always recommend consulting a licensed doctor
+2. For ANY emergency symptoms (chest pain, difficulty breathing, stroke signs, severe bleeding) — IMMEDIATELY tell the user to call emergency services (112 / 911)
+3. Never recommend stopping prescribed medications
+4. End responses with a brief reminder to consult a healthcare professional when relevant
 
-/* ── Logo ── */
-.logo-card {
-    background: linear-gradient(135deg, #1e3a5f 0%, #1d4ed8 55%, #3b82f6 100%);
-    border-radius: 18px; padding: 22px 16px 18px; text-align: center;
-    margin-bottom: 16px; box-shadow: 0 8px 30px rgba(59,130,246,0.28);
-    border: 1px solid rgba(255,255,255,0.08);
-}
-.logo-card .licon { font-size: 2.3rem; display: block; margin-bottom: 6px; }
-.logo-card .lname {
-    color: #fff !important; font-size: 1.6rem !important;
-    font-weight: 900 !important; letter-spacing: -0.8px; display: block;
-}
-.logo-card .lsub {
-    color: rgba(255,255,255,0.68) !important;
-    font-size: 0.73rem !important; display: block; margin-top: 2px;
-}
-.logo-card .badge {
-    display: inline-flex; align-items: center; gap: 5px;
-    background: rgba(16,185,129,0.18); border: 1px solid rgba(16,185,129,0.38);
-    border-radius: 20px; padding: 3px 11px; margin-top: 11px;
-    font-size: 0.69rem !important; color: #6ee7b7 !important; font-weight: 600;
-}
-.bdot {
-    width: 6px; height: 6px; background: #10b981; border-radius: 50%;
-    display: inline-block; animation: blink 1.8s ease-in-out infinite;
-}
-@keyframes blink { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.35;transform:scale(1.4)} }
+Format your responses clearly using bullet points and bold headings where helpful."""
 
-/* ── Section label ── */
-.slbl {
-    font-size: 0.63rem !important; font-weight: 700 !important;
-    letter-spacing: 1.3px !important; color: #64748b !important;
-    text-transform: uppercase !important; display: block;
-    margin: 14px 0 7px !important;
-}
-
-/* ── User chip ── */
-.uchip {
-    display: flex; align-items: center; gap: 10px;
-    background: #111827; border: 1px solid #1a2a45;
-    border-radius: 12px; padding: 11px 13px; margin-bottom: 10px;
-}
-.uav {
-    width: 36px; height: 36px; border-radius: 9px;
-    background: linear-gradient(135deg, #1d4ed8, #7c3aed);
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 0.95rem; color: #fff; flex-shrink: 0;
-}
-.uname { font-weight: 700; font-size: 0.88rem; color: #e2e8f0 !important; }
-.urole { font-size: 0.69rem; color: #10b981 !important; font-weight: 600; margin-top: 1px; }
-
-/* ── Inputs ── */
-.stTextInput > label, .stTextArea > label,
-.stNumberInput > label, .stSelectbox > label {
-    font-size: 0.75rem !important; font-weight: 600 !important;
-    color: #94a3b8 !important; margin-bottom: 4px !important;
-}
-.stTextInput input, .stTextArea textarea, .stNumberInput input {
-    background: #1e293b !important; border: 1.5px solid #1e3a5f !important;
-    border-radius: 9px !important; color: #e2e8f0 !important;
-    font-size: 0.87rem !important;
-}
-.stTextInput input:focus, .stTextArea textarea:focus, .stNumberInput input:focus {
-    border-color: #3b82f6 !important;
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.15) !important;
-}
-.stTextInput input::placeholder, .stTextArea textarea::placeholder {
-    color: #475569 !important;
-}
-.stSelectbox > div > div {
-    background: #1e293b !important; border: 1.5px solid #1e3a5f !important;
-    border-radius: 9px !important; color: #e2e8f0 !important;
-}
-
-/* ── Buttons ── */
-.stButton > button {
-    background: linear-gradient(135deg, #1d4ed8, #3b82f6) !important;
-    color: #fff !important; border: none !important;
-    border-radius: 9px !important; font-weight: 700 !important;
-    font-size: 0.86rem !important; padding: 10px 18px !important;
-    width: 100% !important;
-    box-shadow: 0 4px 16px rgba(59,130,246,0.35) !important;
-    transition: all 0.18s ease !important;
-}
-.stButton > button:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 7px 24px rgba(59,130,246,0.45) !important;
-    filter: brightness(1.1) !important;
-}
-.stButton > button:active { transform: translateY(0) !important; }
-
-/* ── Expander ── */
-[data-testid="stExpander"] {
-    background: #111827 !important; border: 1px solid #1a2a45 !important;
-    border-radius: 11px !important;
-}
-[data-testid="stExpander"] summary {
-    font-weight: 600 !important; font-size: 0.83rem !important;
-    color: #e2e8f0 !important; padding: 11px 14px !important;
-}
-
-/* ── Divider ── */
-hr { border: none !important; border-top: 1px solid #1a2a45 !important; margin: 10px 0 !important; }
-
-/* ── Disclaimer ── */
-.disc {
-    background: rgba(245,158,11,0.09); border: 1px solid rgba(245,158,11,0.25);
-    border-radius: 10px; padding: 10px 13px;
-    font-size: 0.72rem !important; color: #fbbf24 !important; line-height: 1.65;
-}
-
-/* ── Dev footer ── */
-.devfoot {
-    text-align: center; padding: 10px 0 0;
-    font-size: 0.68rem !important; color: #475569 !important;
-}
-.devfoot .dn { color: #60a5fa !important; font-weight: 700 !important; }
-
-/* ════════════════════════════
-   MAIN AREA
-════════════════════════════ */
-
-/* Topbar */
-.topbar {
-    background: #111827; border: 1px solid #1a2a45;
-    border-radius: 14px; padding: 16px 22px; margin-bottom: 16px;
-}
-.topbar h1 {
-    color: #e2e8f0 !important; font-size: 1.2rem !important;
-    font-weight: 800 !important; margin: 0 !important; letter-spacing: -0.4px;
-}
-.topbar p { color: #64748b !important; font-size: 0.76rem !important; margin: 3px 0 0 !important; }
-
-/* KPI */
-.kcard {
-    background: #111827; border: 1px solid #1a2a45;
-    border-radius: 13px; padding: 16px 14px; text-align: center;
-    transition: transform 0.15s;
-}
-.kcard:hover { transform: translateY(-2px); }
-.ki { font-size: 1.4rem; display: block; margin-bottom: 5px; }
-.kv { font-size: 0.95rem; font-weight: 800; color: #e2e8f0; display: block; }
-.kl { font-size: 0.63rem; color: #64748b; text-transform: uppercase;
-       letter-spacing: 0.7px; font-weight: 600; display: block; margin-top: 2px; }
-
-/* Welcome */
-.welcome {
-    text-align: center; padding: 48px 20px 32px;
-}
-.wi { font-size: 4rem; display: block; margin-bottom: 14px;
-      animation: fl 3s ease-in-out infinite; }
-@keyframes fl { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-9px)} }
-.wt { font-size: 1.8rem; font-weight: 900; color: #e2e8f0;
-      letter-spacing: -0.8px; margin-bottom: 10px; }
-.ws { color: #64748b; font-size: 0.9rem; max-width: 460px;
-      margin: 0 auto 28px; line-height: 1.8; }
-.chips { display: grid; grid-template-columns: 1fr 1fr;
-         gap: 10px; max-width: 560px; margin: 0 auto; }
-.chip {
-    background: #111827; border: 1px solid #1a2a45;
-    border-radius: 11px; padding: 12px 14px;
-    font-size: 0.81rem; color: #93c5fd; text-align: left; line-height: 1.5;
-    transition: all 0.16s;
-}
-.chip:hover { border-color: #3b82f6; transform: translateY(-1px);
-              box-shadow: 0 4px 14px rgba(59,130,246,0.18); }
-
-/* Chat bubbles */
-.mwrap { display: flex; margin-bottom: 18px; gap: 12px; align-items: flex-start; }
-.mwrap.umsg { flex-direction: row-reverse; }
-.mav {
-    width: 38px; height: 38px; border-radius: 11px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1rem; flex-shrink: 0; box-shadow: 0 3px 10px rgba(0,0,0,0.2);
-}
-.mav.bav { background: linear-gradient(135deg,#1e3a5f,#1d4ed8); border: 1px solid rgba(59,130,246,0.3); }
-.mav.uav { background: linear-gradient(135deg,#065f46,#059669); border: 1px solid rgba(5,150,105,0.3); }
-.mbub {
-    max-width: 68%; padding: 14px 18px; border-radius: 16px;
-    font-size: 0.9rem; line-height: 1.78;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-}
-.mbub.bb {
-    background: #1a2235; border: 1px solid #1e3a5f;
-    border-top-left-radius: 4px; color: #e2e8f0;
-}
-.mbub.ub {
-    background: linear-gradient(135deg,#1d4ed8,#3b82f6);
-    border-top-right-radius: 4px; color: #fff;
-}
-.mbub p { margin: 0 0 7px; color: inherit !important; }
-.mbub p:last-child { margin-bottom: 0; }
-.mbub ul, .mbub ol { padding-left: 18px; margin: 7px 0; }
-.mbub li { margin-bottom: 4px; color: inherit !important; }
-.mbub strong { font-weight: 700; color: inherit !important; }
-.mbub em { font-style: italic; color: inherit !important; }
-.mtime { font-size: 0.65rem; opacity: 0.45; margin-top: 8px; }
-
-/* Chat input */
-[data-testid="stChatInput"] textarea {
-    background: #1e293b !important; color: #e2e8f0 !important;
-    font-size: 0.93rem !important; font-family: 'Inter', sans-serif !important;
-}
-[data-testid="stChatInput"] textarea::placeholder { color: #475569 !important; }
-[data-testid="stChatInputSubmitButton"] button {
-    background: linear-gradient(135deg,#1d4ed8,#3b82f6) !important;
-    border-radius: 8px !important;
-    box-shadow: 0 3px 10px rgba(59,130,246,0.35) !important;
-}
-
-/* Alerts */
-.stSuccess > div, .stError > div, .stWarning > div, .stInfo > div {
-    border-radius: 10px !important; font-size: 0.84rem !important;
-}
-
-/* Scrollbar */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.22); border-radius: 4px; }
-
-/* New Chat button */
-.new-chat-btn > button {
-    background: linear-gradient(135deg, #059669, #10b981) !important;
-    box-shadow: 0 4px 14px rgba(16,185,129,0.3) !important;
-}
-.new-chat-btn > button:hover {
-    box-shadow: 0 6px 20px rgba(16,185,129,0.45) !important;
-}
-
-/* History items */
-.hist-item {
-    background: #111827; border: 1px solid #1a2a45;
-    border-radius: 9px; padding: 9px 12px; margin-bottom: 6px;
-    cursor: pointer; transition: all 0.15s;
-}
-.hist-item:hover { border-color: #3b82f6; background: #1a2235; }
-.hist-title { font-size: 0.78rem; font-weight: 600; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hist-meta  { font-size: 0.66rem; color: #64748b; margin-top: 2px; }
-</style>
-""", unsafe_allow_html=True)
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-def hdr():
-    t = st.session_state.access_token
-    return {"Authorization": f"Bearer {t}"} if t else {}
-
-def api_post(ep, body, timeout=30):
+# ── OpenAI call ───────────────────────────────────────────────────────────────
+def ask_openai(user_message: str) -> str:
+    if not API_KEY:
+        return "⚠️ OpenAI API key not configured. Please add it to your .env file."
+    client = OpenAI(api_key=API_KEY)
+    messages = [{"role": "system", "content": build_system_prompt()}]
+    messages += st.session_state.oai_history[-20:]
+    messages.append({"role": "user", "content": user_message})
     try:
-        r = requests.post(f"{API_BASE}{ep}", json=body, headers=hdr(), timeout=timeout)
-        r.raise_for_status(); return r.json()
-    except requests.exceptions.ConnectionError:
-        st.error("Cannot reach the API. Please start the backend server.")
-    except requests.HTTPError as e:
-        try:    d = e.response.json().get("detail", str(e))
-        except: d = str(e)
-        st.error(d)
-    return None
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=1200,
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        return f"⚠️ Error connecting to OpenAI: {str(e)}"
 
-def api_get(ep):
-    try:
-        r = requests.get(f"{API_BASE}{ep}", headers=hdr(), timeout=15)
-        r.raise_for_status(); return r.json()
-    except: return None
-
-def api_put(ep, body):
-    try:
-        r = requests.put(f"{API_BASE}{ep}", json=body, headers=hdr(), timeout=20)
-        r.raise_for_status(); return r.json()
-    except requests.HTTPError as e:
-        try:    d = e.response.json().get("detail", str(e))
-        except: d = str(e)
-        st.error(d)
-    return None
-
-def ensure_session():
-    if not st.session_state.session_id:
-        d = api_post("/api/v1/chat/session/new", {})
-        if d: st.session_state.session_id = d["session_id"]
-
-def load_profile():
-    d = api_get("/api/v1/memory/load")
-    if d: st.session_state.medical_profile = d.get("medical_context", {})
-
+# ── Markdown renderer ─────────────────────────────────────────────────────────
 def md_to_html(text: str) -> str:
-    """Convert markdown bold/lists to HTML for chat bubbles."""
     text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
-    text = re.sub(r'\*(.+?)\*',   r'<em>\1</em>',         text)
+    text = re.sub(r'\*(.+?)\*',     r'<em>\1</em>',         text)
+    text = re.sub(r'`(.+?)`',       r'<code style="background:rgba(255,255,255,0.1);padding:1px 5px;border-radius:4px;font-size:0.85em;">\1</code>', text)
     lines = text.split('\n')
-    out, in_list, list_type = [], False, ''
+    out, in_list, ltype = [], False, ''
     for line in lines:
         num = re.match(r'^(\d+)\.\s+(.*)', line)
         bul = re.match(r'^[-•*]\s+(.*)', line)
         if num:
-            if list_type != 'ol':
-                if in_list: out.append(f'</{list_type}>')
-                out.append('<ol style="padding-left:18px;margin:8px 0 8px;">')
-                list_type, in_list = 'ol', True
-            out.append(f'<li style="margin-bottom:4px;">{num.group(2)}</li>')
+            if ltype != 'ol':
+                if in_list: out.append(f'</{ltype}>')
+                out.append('<ol style="padding-left:20px;margin:8px 0;">')
+                ltype, in_list = 'ol', True
+            out.append(f'<li style="margin-bottom:5px;">{num.group(2)}</li>')
         elif bul:
-            if list_type != 'ul':
-                if in_list: out.append(f'</{list_type}>')
-                out.append('<ul style="padding-left:18px;margin:8px 0 8px;">')
-                list_type, in_list = 'ul', True
-            out.append(f'<li style="margin-bottom:4px;">{bul.group(1)}</li>')
+            if ltype != 'ul':
+                if in_list: out.append(f'</{ltype}>')
+                out.append('<ul style="padding-left:20px;margin:8px 0;">')
+                ltype, in_list = 'ul', True
+            out.append(f'<li style="margin-bottom:5px;">{bul.group(1)}</li>')
         else:
             if in_list:
-                out.append(f'</{list_type}>')
-                in_list, list_type = False, ''
+                out.append(f'</{ltype}>')
+                in_list, ltype = False, ''
             if line.strip():
-                out.append(f'<p style="margin:0 0 7px 0;">{line}</p>')
-    if in_list: out.append(f'</{list_type}>')
+                out.append(f'<p style="margin:0 0 8px 0;">{line}</p>')
+    if in_list: out.append(f'</{ltype}>')
     return '\n'.join(out)
+
+# ── Save current chat to history ──────────────────────────────────────────────
+def save_current_chat():
+    if not st.session_state.messages:
+        return
+    first_q = next(
+        (m["content"] for m in st.session_state.messages if m["role"] == "human"), ""
+    )
+    if not first_q:
+        return
+    title = first_q[:45] + ("…" if len(first_q) > 45 else "")
+    count = sum(1 for m in st.session_state.messages if m["role"] == "human")
+    st.session_state.chat_history.insert(0, {
+        "title":    title,
+        "messages": st.session_state.messages.copy(),
+        "oai":      st.session_state.oai_history.copy(),
+        "ts":       datetime.now().strftime("%b %d, %I:%M %p"),
+        "count":    count,
+    })
+    st.session_state.chat_history = st.session_state.chat_history[:15]
+
+def start_new_chat():
+    save_current_chat()
+    st.session_state.messages    = []
+    st.session_state.oai_history = []
+    st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CSS
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+* { box-sizing: border-box; }
+html, body, [class*="css"], .stApp {
+    font-family: 'Inter', -apple-system, sans-serif !important;
+    background: #060b14 !important;
+}
+.main .block-container {
+    padding: 0 !important; max-width: 100% !important;
+}
+#MainMenu, footer, [data-testid="stToolbar"],
+header[data-testid="stHeader"] { display: none !important; }
+
+/* ══ SIDEBAR ══ */
+[data-testid="stSidebar"] {
+    background: #080d18 !important;
+    border-right: 1px solid #0f1e35 !important;
+    width: 290px !important;
+}
+[data-testid="stSidebarContent"] { padding: 0 !important; }
+.sidebar-inner { padding: 18px 14px; }
+
+/* Logo */
+.logo-block {
+    background: linear-gradient(140deg,#0a2342 0%,#0f3876 40%,#1a5fb4 100%);
+    border-radius: 20px; padding: 24px 16px 20px; text-align: center;
+    margin-bottom: 20px; position: relative; overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 8px 32px rgba(26,95,180,0.3), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.logo-block::before {
+    content: ''; position: absolute; top: -40%; left: -20%;
+    width: 140%; height: 200%;
+    background: radial-gradient(ellipse at 60% 30%, rgba(255,255,255,0.06) 0%, transparent 65%);
+    pointer-events: none;
+}
+.logo-emoji { font-size: 2.8rem; display: block; margin-bottom: 8px;
+              filter: drop-shadow(0 4px 12px rgba(59,130,246,0.6)); }
+.logo-name {
+    color: #fff !important; font-size: 1.7rem !important; font-weight: 900 !important;
+    letter-spacing: -1px; display: block; margin-bottom: 3px;
+}
+.logo-tagline { color: rgba(255,255,255,0.6) !important; font-size: 0.72rem !important; display: block; }
+.online-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.35);
+    border-radius: 20px; padding: 4px 12px; margin-top: 12px;
+    font-size: 0.68rem !important; color: #6ee7b7 !important; font-weight: 600;
+}
+.pulse { width: 6px; height: 6px; background: #10b981; border-radius: 50%;
+         display: inline-block; animation: p 1.8s ease-in-out infinite; }
+@keyframes p { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.35;transform:scale(1.5)} }
+
+/* Section label */
+.sec-lbl {
+    font-size: 0.62rem !important; font-weight: 700 !important;
+    letter-spacing: 1.4px !important; color: #334155 !important;
+    text-transform: uppercase !important; display: block;
+    margin: 16px 0 8px !important;
+}
+
+/* New Chat button */
+.stButton > button {
+    background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%) !important;
+    color: #fff !important; border: none !important;
+    border-radius: 12px !important; font-weight: 700 !important;
+    font-size: 0.87rem !important; padding: 11px 16px !important;
+    width: 100% !important; letter-spacing: 0.2px !important;
+    box-shadow: 0 4px 16px rgba(59,130,246,0.32) !important;
+    transition: all 0.18s ease !important;
+}
+.stButton > button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 24px rgba(59,130,246,0.45) !important;
+    filter: brightness(1.08) !important;
+}
+.stButton > button:active { transform: translateY(0) !important; }
+
+/* History items */
+.hist-btn > button {
+    background: #0c1526 !important;
+    border: 1px solid #0f1e35 !important;
+    border-radius: 10px !important;
+    text-align: left !important;
+    padding: 9px 12px !important;
+    font-size: 0.78rem !important;
+    color: #94a3b8 !important;
+    font-weight: 500 !important;
+    box-shadow: none !important;
+}
+.hist-btn > button:hover {
+    border-color: #1d4ed8 !important;
+    background: #0f1e35 !important;
+    color: #e2e8f0 !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+.del-btn > button {
+    background: transparent !important;
+    border: 1px solid #1a2a45 !important;
+    border-radius: 7px !important;
+    color: #475569 !important;
+    font-size: 0.75rem !important;
+    padding: 5px 8px !important;
+    box-shadow: none !important;
+}
+.del-btn > button:hover {
+    background: rgba(239,68,68,0.15) !important;
+    border-color: rgba(239,68,68,0.4) !important;
+    color: #f87171 !important;
+    transform: none !important;
+}
+
+/* Profile form */
+.stTextInput > label, .stTextArea > label, .stSelectbox > label {
+    font-size: 0.73rem !important; font-weight: 600 !important;
+    color: #475569 !important; margin-bottom: 3px !important;
+}
+.stTextInput input, .stTextArea textarea {
+    background: #0c1526 !important; border: 1.5px solid #0f1e35 !important;
+    border-radius: 9px !important; color: #e2e8f0 !important; font-size: 0.85rem !important;
+}
+.stTextInput input:focus, .stTextArea textarea:focus {
+    border-color: #3b82f6 !important; box-shadow: 0 0 0 3px rgba(59,130,246,0.12) !important;
+}
+.stTextInput input::placeholder, .stTextArea textarea::placeholder { color: #334155 !important; }
+.stSelectbox > div > div {
+    background: #0c1526 !important; border: 1.5px solid #0f1e35 !important;
+    border-radius: 9px !important; color: #e2e8f0 !important;
+}
+
+/* Expander */
+[data-testid="stExpander"] {
+    background: #0c1526 !important; border: 1px solid #0f1e35 !important;
+    border-radius: 12px !important;
+}
+[data-testid="stExpander"] summary {
+    font-weight: 600 !important; font-size: 0.82rem !important;
+    color: #94a3b8 !important;
+}
+[data-testid="stExpander"] summary:hover { color: #e2e8f0 !important; }
+
+/* Disclaimer */
+.disc {
+    background: rgba(245,158,11,0.07); border: 1px solid rgba(245,158,11,0.2);
+    border-radius: 10px; padding: 10px 12px; font-size: 0.71rem !important;
+    color: #d97706 !important; line-height: 1.6; margin-top: 8px;
+}
+.devfoot { text-align: center; padding: 12px 0 4px; font-size: 0.67rem !important; color: #1e3a5f !important; }
+.devfoot .dn { color: #3b82f6 !important; font-weight: 700 !important; }
+
+hr { border: none !important; border-top: 1px solid #0f1e35 !important; margin: 12px 0 !important; }
+[data-testid="stSidebar"] * { color: #e2e8f0 !important; }
+[data-testid="stSidebar"] .sec-lbl { color: #334155 !important; }
+[data-testid="stSidebar"] .devfoot  { color: #1e3a5f !important; }
+[data-testid="stSidebar"] .disc     { color: #d97706 !important; }
+
+/* ══ MAIN CONTENT ══ */
+.main-wrap { background: #060b14; min-height: 100vh; }
+
+/* Top bar */
+.topbar {
+    background: linear-gradient(180deg, #080e1c 0%, #060b14 100%);
+    border-bottom: 1px solid #0f1e35;
+    padding: 16px 36px;
+    display: flex; align-items: center; justify-content: space-between;
+}
+.topbar-title {
+    font-size: 1.15rem; font-weight: 800; color: #e2e8f0;
+    letter-spacing: -0.4px;
+}
+.topbar-sub { font-size: 0.74rem; color: #334155; margin-top: 2px; }
+.topbar-badge {
+    background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.25);
+    border-radius: 20px; padding: 5px 14px; font-size: 0.72rem;
+    color: #60a5fa; font-weight: 600;
+}
+
+/* KPI strip */
+.kpi-strip {
+    display: grid; grid-template-columns: repeat(4,1fr);
+    gap: 12px; padding: 18px 36px;
+    border-bottom: 1px solid #0a1628;
+}
+.kpi {
+    background: #080e1c; border: 1px solid #0f1e35;
+    border-radius: 14px; padding: 14px 16px;
+    display: flex; align-items: center; gap: 12px;
+    transition: transform 0.15s, border-color 0.15s;
+}
+.kpi:hover { transform: translateY(-1px); border-color: #1d4ed8; }
+.kpi-icon {
+    width: 40px; height: 40px; border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem; flex-shrink: 0;
+}
+.kpi-icon.blue   { background: rgba(59,130,246,0.15); }
+.kpi-icon.purple { background: rgba(124,58,237,0.15); }
+.kpi-icon.green  { background: rgba(16,185,129,0.15); }
+.kpi-icon.amber  { background: rgba(245,158,11,0.15); }
+.kpi-val { font-size: 0.92rem; font-weight: 800; color: #e2e8f0; }
+.kpi-lbl { font-size: 0.62rem; color: #334155; text-transform: uppercase;
+            letter-spacing: 0.6px; font-weight: 600; margin-top: 1px; }
+
+/* Chat area */
+.chat-area { padding: 24px 36px 0; }
+
+/* Welcome */
+.welcome {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 56px 20px 32px; text-align: center;
+}
+.hero { font-size: 5rem; margin-bottom: 16px;
+        filter: drop-shadow(0 0 40px rgba(59,130,246,0.45));
+        animation: fl 3.5s ease-in-out infinite; display: block; }
+@keyframes fl { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+.w-title {
+    font-size: 2rem; font-weight: 900; color: #f1f5f9;
+    letter-spacing: -1px; margin-bottom: 12px;
+}
+.w-title span { color: #3b82f6; }
+.w-sub {
+    color: #334155; font-size: 0.93rem; max-width: 500px;
+    line-height: 1.85; margin-bottom: 36px;
+}
+.cards-grid {
+    display: grid; grid-template-columns: repeat(3,1fr);
+    gap: 12px; max-width: 640px; width: 100%;
+}
+.scard {
+    background: #080e1c; border: 1px solid #0f1e35;
+    border-radius: 14px; padding: 16px 14px; text-align: left;
+    transition: all 0.18s; cursor: default;
+}
+.scard:hover {
+    border-color: #1d4ed8;
+    box-shadow: 0 4px 20px rgba(59,130,246,0.15);
+    transform: translateY(-2px);
+}
+.scard .sc-icon { font-size: 1.4rem; margin-bottom: 8px; display: block; }
+.scard .sc-text { font-size: 0.78rem; color: #64748b; line-height: 1.5; }
+
+/* Messages */
+.msg-row { display: flex; margin-bottom: 22px; gap: 14px; align-items: flex-start; }
+.msg-row.user { flex-direction: row-reverse; }
+
+.av {
+    width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.av.bot { background: linear-gradient(135deg,#0a2342,#1d4ed8); border: 1px solid rgba(59,130,246,0.3); }
+.av.usr { background: linear-gradient(135deg,#064e3b,#059669); border: 1px solid rgba(5,150,105,0.3); }
+
+.bubble {
+    max-width: 66%; padding: 15px 19px; border-radius: 18px;
+    font-size: 0.9rem; line-height: 1.8;
+}
+.bubble.bot {
+    background: #080e1c; border: 1px solid #0f1e35;
+    border-top-left-radius: 4px; color: #cbd5e1;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+.bubble.usr {
+    background: linear-gradient(135deg,#1e3a8a,#1d4ed8);
+    border-top-right-radius: 4px; color: #fff;
+    box-shadow: 0 4px 20px rgba(29,78,216,0.35);
+}
+.bubble p  { margin: 0 0 8px; color: inherit !important; }
+.bubble p:last-child { margin-bottom: 0; }
+.bubble ul, .bubble ol { padding-left: 20px; margin: 8px 0; }
+.bubble li { margin-bottom: 5px; color: inherit !important; }
+.bubble strong { font-weight: 700; color: inherit !important; }
+.bubble em     { font-style: italic; color: inherit !important; }
+.btime { font-size: 0.64rem; opacity: 0.4; margin-top: 10px; letter-spacing: 0.3px; }
+
+/* Input area */
+.input-wrap {
+    padding: 16px 36px 20px;
+    background: linear-gradient(0deg, #060b14 0%, transparent 100%);
+    position: sticky; bottom: 0;
+}
+[data-testid="stChatInput"] {
+    background: #080e1c !important;
+    border: 2px solid #0f1e35 !important;
+    border-radius: 16px !important;
+}
+[data-testid="stChatInput"]:focus-within {
+    border-color: #1d4ed8 !important;
+    box-shadow: 0 0 0 4px rgba(29,78,216,0.12) !important;
+}
+[data-testid="stChatInput"] textarea {
+    background: transparent !important; color: #e2e8f0 !important;
+    font-size: 0.95rem !important; font-family: 'Inter', sans-serif !important;
+}
+[data-testid="stChatInput"] textarea::placeholder { color: #1e3a5f !important; }
+[data-testid="stChatInputSubmitButton"] button {
+    background: linear-gradient(135deg,#1d4ed8,#3b82f6) !important;
+    border-radius: 10px !important; box-shadow: 0 3px 12px rgba(29,78,216,0.4) !important;
+}
+
+/* Footer */
+.footer {
+    text-align: center; padding: 10px 0 16px;
+    font-size: 0.68rem; color: #1e3a5f; margin-top: 4px;
+}
+.footer b { color: #3b82f6; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #0f1e35; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #1d4ed8; }
+
+/* Alerts */
+.stSuccess > div { border-radius: 10px !important; background: rgba(16,185,129,0.08) !important; }
+.stError   > div { border-radius: 10px !important; background: rgba(239,68,68,0.08) !important; }
+.stInfo    > div { border-radius: 10px !important; background: rgba(59,130,246,0.08) !important; }
+</style>
+""", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
+    st.markdown('<div class="sidebar-inner">', unsafe_allow_html=True)
 
+    # Logo
     st.markdown("""
-    <div class="logo-card">
-        <span class="licon">🏥</span>
-        <span class="lname">MedBotX</span>
-        <span class="lsub">Advanced AI Medical Assistant</span>
-        <div class="badge"><span class="bdot"></span>&nbsp;Online &amp; Ready</div>
+    <div class="logo-block">
+        <span class="logo-emoji">🏥</span>
+        <span class="logo-name">MedBotX</span>
+        <span class="logo-tagline">Advanced AI Medical Assistant</span>
+        <div class="online-pill">
+            <span class="pulse"></span>&nbsp;AI Online
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.divider()
+    # New Chat
+    if st.button("✨  Start New Chat"):
+        start_new_chat()
 
-    # ── New Chat button ───────────────────────────────────────────────────────
-    st.markdown('<div class="new-chat-btn">', unsafe_allow_html=True)
-    if st.button("✨ New Chat", key="new_chat_btn"):
-        # Save current chat to history before clearing
-        if st.session_state.messages:
-            first_q = next(
-                (m["content"] for m in st.session_state.messages if m["role"] == "human"),
-                "Chat session"
-            )
-            title = first_q[:40] + ("..." if len(first_q) > 40 else "")
-            st.session_state.chat_history.insert(0, {
-                "title": title,
-                "messages": st.session_state.messages.copy(),
-                "ts": datetime.now().strftime("%b %d, %I:%M %p"),
-                "count": len([m for m in st.session_state.messages if m["role"] == "human"]),
-            })
-            # Keep only last 10 sessions
-            st.session_state.chat_history = st.session_state.chat_history[:10]
-        st.session_state.messages = []
-        st.session_state.session_id = None
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.divider()
 
     # ── Chat History ──────────────────────────────────────────────────────────
     if st.session_state.chat_history:
-        st.markdown('<span class="slbl">💬 Recent Chats</span>', unsafe_allow_html=True)
+        st.markdown('<span class="sec-lbl">Recent Conversations</span>', unsafe_allow_html=True)
         for i, sess in enumerate(st.session_state.chat_history):
-            col_h, col_x = st.columns([5, 1])
-            with col_h:
-                if st.button(f"🗨 {sess['title']}", key=f"hist_{i}",
-                             help=f"{sess['count']} questions · {sess['ts']}",
-                             use_container_width=True):
-                    # Save current chat first
-                    if st.session_state.messages:
-                        first_q = next(
-                            (m["content"] for m in st.session_state.messages if m["role"] == "human"),
-                            "Chat session"
-                        )
-                        t = first_q[:40] + ("..." if len(first_q) > 40 else "")
-                        st.session_state.chat_history.insert(0, {
-                            "title": t,
-                            "messages": st.session_state.messages.copy(),
-                            "ts": datetime.now().strftime("%b %d, %I:%M %p"),
-                            "count": len([m for m in st.session_state.messages if m["role"] == "human"]),
-                        })
-                    st.session_state.messages = sess["messages"].copy()
-                    st.session_state.session_id = None
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                st.markdown('<div class="hist-btn">', unsafe_allow_html=True)
+                if st.button(f"💬  {sess['title']}", key=f"h{i}",
+                             use_container_width=True,
+                             help=f"{sess['count']} Q&A · {sess['ts']}"):
+                    save_current_chat()
+                    st.session_state.messages    = sess["messages"].copy()
+                    st.session_state.oai_history = sess.get("oai", []).copy()
                     st.rerun()
-            with col_x:
-                if st.button("✕", key=f"del_{i}", help="Delete this chat"):
+                st.markdown('</div>', unsafe_allow_html=True)
+            with c2:
+                st.markdown('<div class="del-btn">', unsafe_allow_html=True)
+                if st.button("✕", key=f"d{i}"):
                     st.session_state.chat_history.pop(i)
                     st.rerun()
-
-    st.divider()
-
-    # ── AUTH ──────────────────────────────────────────────────────────────────
-    if not st.session_state.username:
-        st.markdown('<span class="slbl">Account</span>', unsafe_allow_html=True)
-        mode = st.radio("m", ["Guest", "Sign In", "Register"],
-                        horizontal=True, label_visibility="collapsed")
-
-        if mode == "Sign In":
-            with st.form("lf", clear_on_submit=False):
-                un = st.text_input("Username", placeholder="your_username")
-                pw = st.text_input("Password", type="password", placeholder="••••••••")
-                if st.form_submit_button("Sign In →"):
-                    if un and pw:
-                        d = api_post("/api/v1/auth/login", {"username": un, "password": pw})
-                        if d:
-                            st.session_state.access_token = d["access_token"]
-                            st.session_state.username = un
-                            me = api_get("/api/v1/auth/me")
-                            if me: st.session_state.user_id = me["id"]
-                            load_profile()
-                            st.success(f"Welcome back, {un}!")
-                            st.rerun()
-                    else:
-                        st.warning("Please fill in all fields.")
-
-        elif mode == "Register":
-            with st.form("rf", clear_on_submit=False):
-                un = st.text_input("Username", placeholder="choose_username")
-                em = st.text_input("Email",    placeholder="you@email.com")
-                pw = st.text_input("Password", type="password", placeholder="Min 8 characters")
-                if st.form_submit_button("Create Account →"):
-                    if un and em and pw:
-                        d = api_post("/api/v1/auth/register",
-                                     {"username": un, "email": em, "password": pw})
-                        if d: st.success("✅ Account created! Please sign in.")
-                    else:
-                        st.warning("Please fill in all fields.")
-        else:
-            st.info("💬 Guest mode — session only.\nSign in to save history & medical profile.")
-
-    else:
-        init = st.session_state.username[0].upper()
-        st.markdown(f"""
-        <div class="uchip">
-            <div class="uav">{init}</div>
-            <div>
-                <div class="uname">{st.session_state.username}</div>
-                <div class="urole">✓ Authenticated · Memory Active</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        if st.button("Sign Out"):
-            for k in ["access_token","username","user_id","messages","session_id","medical_profile"]:
-                st.session_state[k] = [] if k=="messages" else ({} if k=="medical_profile" else None)
-            st.rerun()
-
+                st.markdown('</div>', unsafe_allow_html=True)
         st.divider()
-        st.markdown('<span class="slbl">🩺 Health Profile</span>', unsafe_allow_html=True)
 
-        prof = st.session_state.medical_profile or {}
-        parts = []
-        if prof.get("age"):         parts.append(f"Age {prof['age']}")
-        if prof.get("blood_type"):  parts.append(f"Blood {prof['blood_type']}")
-        if prof.get("conditions"):  parts.append(f"{len(prof['conditions'])} condition(s)")
-        if prof.get("medications"): parts.append(f"{len(prof['medications'])} med(s)")
-        if parts:
-            st.markdown(f'<p style="font-size:0.72rem;color:#64748b;margin:0 0 8px;">{" · ".join(parts)}</p>',
-                        unsafe_allow_html=True)
+    # ── Health Profile ────────────────────────────────────────────────────────
+    st.markdown('<span class="sec-lbl">🩺 My Health Profile</span>', unsafe_allow_html=True)
 
-        BLOODS = ["","A+","A-","B+","B-","AB+","AB-","O+","O-"]
-        saved  = prof.get("blood_type","") or ""
-        bidx   = BLOODS.index(saved) if saved in BLOODS else 0
+    p = st.session_state.health_profile
+    summary = []
+    if p.get("name"):       summary.append(p["name"])
+    if p.get("age"):        summary.append(f"Age {p['age']}")
+    if p.get("blood_type"): summary.append(f"Blood {p['blood_type']}")
+    if summary:
+        st.markdown(f'<p style="font-size:0.72rem;color:#334155;margin:0 0 8px;">{" · ".join(summary)}</p>',
+                    unsafe_allow_html=True)
 
-        with st.expander("✏️ Edit Health Profile", expanded=False):
-            with st.form("hf", clear_on_submit=False):
-                age   = st.number_input("Age", 0, 120, int(prof.get("age") or 0))
-                blood = st.selectbox("Blood Type", BLOODS, index=bidx)
-                allerg = st.text_area("Allergies (comma-separated)",
-                            value=", ".join(prof.get("allergies") or []),
-                            placeholder="e.g. Penicillin, Peanuts", height=58)
-                conds  = st.text_area("Medical Conditions",
-                            value=", ".join(prof.get("conditions") or []),
-                            placeholder="e.g. Diabetes Type 2", height=58)
-                meds   = st.text_area("Medications",
-                            value=", ".join(prof.get("medications") or []),
-                            placeholder="e.g. Metformin 500mg", height=58)
-                notes  = st.text_area("Notes",
-                            value=prof.get("notes") or "",
-                            placeholder="Other health notes...", height=48)
-                if st.form_submit_button("💾 Save Profile"):
-                    payload = {
-                        "age":         int(age) if age and age > 0 else None,
-                        "blood_type":  blood or None,
-                        "allergies":   [a.strip() for a in allerg.split(",") if a.strip()],
-                        "conditions":  [c.strip() for c in conds.split(",")  if c.strip()],
-                        "medications": [m.strip() for m in meds.split(",")   if m.strip()],
-                        "notes":       notes.strip() or None,
-                    }
-                    r = api_put("/api/v1/memory/medical-context", payload)
-                    if r:
-                        st.session_state.medical_profile = r.get("medical_context", payload)
-                        st.success("✅ Profile saved!")
+    with st.expander("✏️  Edit Profile", expanded=False):
+        with st.form("prof", clear_on_submit=False):
+            name  = st.text_input("Your Name",   value=p.get("name",""),  placeholder="e.g. Bhaskar")
+            age   = st.text_input("Age",          value=p.get("age",""),   placeholder="e.g. 25")
+            blood = st.selectbox("Blood Type",
+                ["","A+","A-","B+","B-","AB+","AB-","O+","O-"],
+                index=(["","A+","A-","B+","B-","AB+","AB-","O+","O-"].index(p.get("blood_type","")) 
+                       if p.get("blood_type","") in ["","A+","A-","B+","B-","AB+","AB-","O+","O-"] else 0))
+            allerg = st.text_area("Allergies", value=p.get("allergies",""),
+                                  placeholder="e.g. Penicillin, Peanuts", height=55)
+            conds  = st.text_area("Medical Conditions", value=p.get("conditions",""),
+                                  placeholder="e.g. Diabetes Type 2", height=55)
+            meds   = st.text_area("Medications", value=p.get("medications",""),
+                                  placeholder="e.g. Metformin 500mg", height=55)
+            notes  = st.text_area("Notes", value=p.get("notes",""),
+                                  placeholder="Anything else...", height=46)
+            if st.form_submit_button("💾  Save Profile"):
+                st.session_state.health_profile = {
+                    "name": name, "age": age, "blood_type": blood,
+                    "allergies": allerg, "conditions": conds,
+                    "medications": meds, "notes": notes,
+                }
+                st.success("✅ Profile saved! MedBotX now knows your health context.")
 
     st.divider()
+
     st.markdown("""
     <div class="disc">
         <strong>⚠️ Medical Disclaimer</strong><br>
-        MedBotX provides general health information only —
-        not a substitute for professional medical advice.
-        Always consult a qualified doctor.
+        MedBotX provides general health information only.
+        It is NOT a substitute for professional medical advice,
+        diagnosis, or treatment. Always consult a qualified doctor.
     </div>
-    <div class="devfoot" style="margin-top:12px;">
+    <div class="devfoot">
         Developed by <span class="dn">Bhaskar Shivaji Kumbhar</span><br>
-        <span style="font-size:0.61rem;opacity:0.4;">MedBotX v1.0.0 · 2026</span>
+        <span style="opacity:0.4;font-size:0.62rem;">MedBotX v2.0 · 2026</span>
     </div>
     """, unsafe_allow_html=True)
 
+    st.markdown('</div>', unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  MAIN
+#  MAIN CONTENT
 # ══════════════════════════════════════════════════════════════════════════════
-user_lbl = st.session_state.username or "Guest"
-mem_lbl  = "Permanent" if st.session_state.access_token else "Session only"
-q_cnt    = len([m for m in st.session_state.messages if m["role"] == "human"])
+msg_count = sum(1 for m in st.session_state.messages if m["role"] == "human")
+profile_name = st.session_state.health_profile.get("name") or "User"
 
+# Top bar
 st.markdown(f"""
 <div class="topbar">
-    <h1>🏥 MedBotX &nbsp;·&nbsp; AI Medical Assistant</h1>
-    <p>Ask about symptoms, medications, conditions, nutrition, or general wellness</p>
+    <div>
+        <div class="topbar-title">🏥 MedBotX &nbsp;·&nbsp; AI Medical Assistant</div>
+        <div class="topbar-sub">Ask anything about symptoms, medications, health conditions, or wellness</div>
+    </div>
+    <div class="topbar-badge">⚡ Powered by GPT-4o</div>
 </div>
 """, unsafe_allow_html=True)
 
-c1, c2, c3, c4 = st.columns(4)
-for col, icon, val, lbl in [
-    (c1, "👤", user_lbl,    "User"),
-    (c2, "🧠", mem_lbl,     "Memory"),
-    (c3, "💬", str(q_cnt),  "Questions Asked"),
-    (c4, "🟢", "Online",    "System Status"),
-]:
-    col.markdown(f"""
-    <div class="kcard">
-        <span class="ki">{icon}</span>
-        <span class="kv">{val}</span>
-        <span class="kl">{lbl}</span>
-    </div>""", unsafe_allow_html=True)
+# KPI strip
+st.markdown(f"""
+<div class="kpi-strip">
+    <div class="kpi">
+        <div class="kpi-icon blue">🧠</div>
+        <div><div class="kpi-val">GPT-4o</div><div class="kpi-lbl">AI Model</div></div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-icon purple">💬</div>
+        <div><div class="kpi-val">{msg_count}</div><div class="kpi-lbl">Questions Asked</div></div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-icon green">🩺</div>
+        <div><div class="kpi-val">{"Set" if any(st.session_state.health_profile.values()) else "Not set"}</div><div class="kpi-lbl">Health Profile</div></div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-icon amber">🟢</div>
+        <div><div class="kpi-val">Online</div><div class="kpi-lbl">Status</div></div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-st.divider()
+# ── Chat messages ─────────────────────────────────────────────────────────────
+st.markdown('<div class="chat-area">', unsafe_allow_html=True)
 
-# ── Messages ──────────────────────────────────────────────────────────────────
 if not st.session_state.messages:
-    st.markdown("""
+    st.markdown(f"""
     <div class="welcome">
-        <span class="wi">🩺</span>
-        <div class="wt">How can I help you today?</div>
-        <p class="ws">
-            I'm MedBotX — your AI-powered medical information assistant.<br>
-            Ask about symptoms, medications, conditions, nutrition, or wellness.
+        <span class="hero">🩺</span>
+        <div class="w-title">Hello, <span>{profile_name}</span> 👋</div>
+        <p class="w-sub">
+            I'm MedBotX — your personal AI medical information assistant.<br>
+            Ask me anything about health, medications, symptoms, or wellness.<br>
+            Your health profile is used to give personalised answers.
         </p>
-        <div class="chips">
-            <div class="chip">🤒 Symptoms of Type 2 Diabetes?</div>
-            <div class="chip">💊 Side effects of Ibuprofen?</div>
-            <div class="chip">❤️ How to lower blood pressure naturally?</div>
-            <div class="chip">😴 Why do I feel tired all the time?</div>
-            <div class="chip">🧬 What is cholesterol and why it matters?</div>
-            <div class="chip">🍎 Best diet for hypertension?</div>
+        <div class="cards-grid">
+            <div class="scard"><span class="sc-icon">🤒</span><div class="sc-text">Symptoms of Type 2 Diabetes?</div></div>
+            <div class="scard"><span class="sc-icon">💊</span><div class="sc-text">Side effects of Ibuprofen?</div></div>
+            <div class="scard"><span class="sc-icon">❤️</span><div class="sc-text">Lower blood pressure naturally?</div></div>
+            <div class="scard"><span class="sc-icon">😴</span><div class="sc-text">Why do I feel tired all the time?</div></div>
+            <div class="scard"><span class="sc-icon">🍎</span><div class="sc-text">Best diet for hypertension?</div></div>
+            <div class="scard"><span class="sc-icon">🧬</span><div class="sc-text">What is cholesterol?</div></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -602,51 +635,47 @@ else:
     for msg in st.session_state.messages:
         role = msg["role"]
         html = md_to_html(msg["content"])
-        ts   = msg.get("timestamp", "")
+        ts   = msg.get("ts", "")
         if role == "ai":
             st.markdown(f"""
-            <div class="mwrap">
-                <div class="mav bav">🤖</div>
-                <div class="mbub bb">{html}<div class="mtime">{ts}</div></div>
+            <div class="msg-row">
+                <div class="av bot">🤖</div>
+                <div class="bubble bot">{html}<div class="btime">{ts}</div></div>
             </div>""", unsafe_allow_html=True)
         else:
             st.markdown(f"""
-            <div class="mwrap umsg">
-                <div class="mav uav">👤</div>
-                <div class="mbub ub">{html}<div class="mtime">{ts}</div></div>
+            <div class="msg-row user">
+                <div class="av usr">👤</div>
+                <div class="bubble usr">{html}<div class="btime">{ts}</div></div>
             </div>""", unsafe_allow_html=True)
 
+st.markdown('</div>', unsafe_allow_html=True)
+
 # ── Input ─────────────────────────────────────────────────────────────────────
-st.divider()
-user_input = st.chat_input("Ask your medical question here...")
+st.markdown('<div class="input-wrap">', unsafe_allow_html=True)
+user_input = st.chat_input("Ask your medical question…")
+st.markdown('</div>', unsafe_allow_html=True)
 
 if user_input and user_input.strip():
-    ensure_session()
+    q = user_input.strip()
     ts = datetime.now().strftime("%I:%M %p")
-    st.session_state.messages.append({"role": "human", "content": user_input.strip(), "timestamp": ts})
-    with st.spinner("MedBotX is thinking..."):
-        data = api_post("/api/v1/chat/", {
-            "message": user_input.strip(),
-            "session_id": st.session_state.session_id,
-        })
+
+    st.session_state.messages.append({"role": "human", "content": q, "ts": ts})
+    st.session_state.oai_history.append({"role": "user", "content": q})
+
+    with st.spinner(""):
+        answer = ask_openai(q)
+
     ai_ts = datetime.now().strftime("%I:%M %p")
-    if data:
-        st.session_state.session_id = data["session_id"]
-        st.session_state.messages.append({"role": "ai", "content": data["response"], "timestamp": ai_ts})
-    else:
-        st.session_state.messages.append({
-            "role": "ai",
-            "content": "I'm having trouble connecting. Please try again.",
-            "timestamp": ai_ts,
-        })
+    st.session_state.messages.append({"role": "ai", "content": answer, "ts": ai_ts})
+    st.session_state.oai_history.append({"role": "assistant", "content": answer})
+
     st.rerun()
 
-# ── Footer ────────────────────────────────────────────────────────────────────
+# Footer
 st.markdown("""
-<div style="text-align:center;padding:10px 0 4px;font-size:0.69rem;color:#475569;
-border-top:1px solid #1a2a45;margin-top:10px;">
-    MedBotX &nbsp;·&nbsp;
-    Developed by <span style="color:#60a5fa;font-weight:700;">Bhaskar Shivaji Kumbhar</span>
+<div class="footer">
+    MedBotX &nbsp;·&nbsp; Developed by <b>Bhaskar Shivaji Kumbhar</b>
     &nbsp;·&nbsp; For informational purposes only &nbsp;·&nbsp;
     Always consult a qualified healthcare professional
 </div>
