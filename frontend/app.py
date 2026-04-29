@@ -3,7 +3,7 @@ MedBotX — Advanced AI Medical Assistant
 Developed by Bhaskar Shivaji Kumbhar
 Direct OpenAI integration — no backend required
 """
-import os, re
+import os, re, json
 from datetime import datetime
 from openai import OpenAI
 import streamlit as st
@@ -23,9 +23,10 @@ st.set_page_config(
 
 # ── Session defaults ──────────────────────────────────────────────────────────
 DEFAULTS = {
-    "messages":      [],       # current chat: [{role, content, ts}]
-    "chat_history":  [],       # saved sessions: [{title, messages, ts, count}]
-    "oai_history":   [],       # OpenAI format: [{role, content}]
+    "messages":         [],    # current chat: [{role, content, ts}]
+    "chat_history":     [],    # saved sessions: [{title, messages, ts, count}]
+    "oai_history":      [],    # OpenAI format: [{role, content}]
+    "drug_checks":      [],    # drug checker history: [{drugs, result, ts}]
     "health_profile": {
         "name": "", "age": "", "blood_type": "",
         "allergies": "", "conditions": "", "medications": "", "notes": "",
@@ -83,6 +84,51 @@ def ask_openai(user_message: str) -> str:
         return resp.choices[0].message.content
     except Exception as e:
         return f"⚠️ Error connecting to OpenAI: {str(e)}"
+
+# ── Drug Interaction Checker ──────────────────────────────────────────────────
+def check_drug_interactions(drugs: list[str]) -> dict:
+    """Returns structured interaction analysis from OpenAI."""
+    if not API_KEY:
+        return {"error": "No API key configured."}
+    client = OpenAI(api_key=API_KEY)
+    drug_list = ", ".join(drugs)
+    prompt = f"""You are a clinical pharmacology expert. Analyze drug interactions between: {drug_list}
+
+For EACH pair of drugs that may interact, provide a JSON response in this exact format:
+{{
+  "summary": "One sentence overall safety summary",
+  "severity": "SAFE" | "MILD" | "MODERATE" | "SEVERE",
+  "interactions": [
+    {{
+      "drugs": ["Drug A", "Drug B"],
+      "severity": "MILD" | "MODERATE" | "SEVERE",
+      "effect": "What happens when taken together",
+      "mechanism": "Why this interaction occurs",
+      "recommendation": "What the patient should do"
+    }}
+  ],
+  "general_advice": "Overall advice for the patient",
+  "see_doctor": true | false
+}}
+
+If there are NO interactions, set severity to "SAFE" and interactions to [].
+Respond ONLY with valid JSON. No markdown, no extra text."""
+
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=1500,
+        )
+        raw = resp.choices[0].message.content.strip()
+        raw = re.sub(r'^```json\s*', '', raw)
+        raw = re.sub(r'\s*```$', '', raw)
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {"error": "Could not parse response. Please try again.", "raw": raw}
+    except Exception as e:
+        return {"error": str(e)}
 
 # ── Markdown renderer ─────────────────────────────────────────────────────────
 def md_to_html(text: str) -> str:
@@ -608,10 +654,14 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Chat messages ─────────────────────────────────────────────────────────────
-st.markdown('<div class="chat-area">', unsafe_allow_html=True)
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+tab_chat, tab_drug = st.tabs(["💬  Chat", "💊  Drug Interaction Checker"])
 
-if not st.session_state.messages:
+# ── TAB 1: Chat ────────────────────────────────────────────────────────────────
+with tab_chat:
+ st.markdown('<div class="chat-area">', unsafe_allow_html=True)
+
+ if not st.session_state.messages:
     st.markdown(f"""
     <div class="welcome">
         <span class="hero">🩺</span>
@@ -631,7 +681,7 @@ if not st.session_state.messages:
         </div>
     </div>
     """, unsafe_allow_html=True)
-else:
+ else:
     for msg in st.session_state.messages:
         role = msg["role"]
         html = md_to_html(msg["content"])
@@ -649,14 +699,14 @@ else:
                 <div class="bubble usr">{html}<div class="btime">{ts}</div></div>
             </div>""", unsafe_allow_html=True)
 
-st.markdown('</div>', unsafe_allow_html=True)
+ st.markdown('</div>', unsafe_allow_html=True)
 
-# ── Input ─────────────────────────────────────────────────────────────────────
-st.markdown('<div class="input-wrap">', unsafe_allow_html=True)
-user_input = st.chat_input("Ask your medical question…")
-st.markdown('</div>', unsafe_allow_html=True)
+ # ── Input ───────────────────────────────────────────────────────────────────
+ st.markdown('<div class="input-wrap">', unsafe_allow_html=True)
+ user_input = st.chat_input("Ask your medical question…")
+ st.markdown('</div>', unsafe_allow_html=True)
 
-if user_input and user_input.strip():
+ if user_input and user_input.strip():
     q = user_input.strip()
     ts = datetime.now().strftime("%I:%M %p")
 
@@ -671,6 +721,213 @@ if user_input and user_input.strip():
     st.session_state.oai_history.append({"role": "assistant", "content": answer})
 
     st.rerun()
+
+
+# ── TAB 2: Drug Interaction Checker ───────────────────────────────────────────
+SEV_COLOR = {"SAFE": "#22c55e", "MILD": "#facc15", "MODERATE": "#f97316", "SEVERE": "#ef4444"}
+SEV_ICON  = {"SAFE": "✅", "MILD": "⚠️", "MODERATE": "🔶", "SEVERE": "🚨"}
+
+with tab_drug:
+    st.markdown("""
+    <div style="margin-bottom:1rem;">
+        <h2 style="color:#e2e8f0;margin:0;font-size:1.4rem;">💊 Drug Interaction Checker</h2>
+        <p style="color:#94a3b8;margin:0.3rem 0 0;font-size:0.9rem;">
+            Enter two or more medications to check for potential interactions.
+            Powered by AI clinical pharmacology knowledge.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Drug input area
+    col_in, col_btn = st.columns([4, 1])
+    with col_in:
+        drug_input = st.text_input(
+            "Enter drug names (comma-separated)",
+            placeholder="e.g. Aspirin, Warfarin, Metformin",
+            key="drug_input",
+            label_visibility="collapsed",
+        )
+    with col_btn:
+        check_clicked = st.button("🔍  Check", use_container_width=True, type="primary", key="drug_check_btn")
+
+    # Quick examples
+    st.markdown("""
+    <p style="color:#64748b;font-size:0.78rem;margin:0.3rem 0 1rem;">
+    Quick examples: &nbsp;
+    <span style="color:#7dd3fc;">Aspirin + Warfarin</span> &nbsp;|&nbsp;
+    <span style="color:#7dd3fc;">Ibuprofen + Prednisone</span> &nbsp;|&nbsp;
+    <span style="color:#7dd3fc;">Metformin + Alcohol</span> &nbsp;|&nbsp;
+    <span style="color:#7dd3fc;">Paracetamol + Codeine + Warfarin</span>
+    </p>
+    """, unsafe_allow_html=True)
+
+    if check_clicked and drug_input.strip():
+        raw_drugs = [d.strip() for d in drug_input.split(",") if d.strip()]
+
+        if len(raw_drugs) < 2:
+            st.warning("Please enter at least **2 drug names** separated by commas.")
+        else:
+            with st.spinner("Analysing drug interactions…"):
+                result = check_drug_interactions(raw_drugs)
+
+            if "error" in result:
+                st.error(f"Error: {result['error']}")
+            else:
+                # Save to history
+                st.session_state.drug_checks.insert(0, {
+                    "drugs": raw_drugs,
+                    "result": result,
+                    "ts": datetime.now().strftime("%b %d, %I:%M %p"),
+                })
+
+                sev     = result.get("severity", "SAFE")
+                sev_col = SEV_COLOR.get(sev, "#22c55e")
+                sev_ico = SEV_ICON.get(sev, "✅")
+                summary = result.get("summary", "")
+                interactions = result.get("interactions", [])
+                advice  = result.get("general_advice", "")
+                see_doc = result.get("see_doctor", False)
+
+                # Overall severity banner
+                st.markdown(f"""
+                <div style="background:rgba(255,255,255,0.04);border:1px solid {sev_col}44;
+                            border-left:4px solid {sev_col};border-radius:10px;
+                            padding:1rem 1.2rem;margin-bottom:1.2rem;">
+                    <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.4rem;">
+                        <span style="font-size:1.5rem;">{sev_ico}</span>
+                        <span style="font-size:1.1rem;font-weight:700;color:{sev_col};">
+                            Overall Risk: {sev}
+                        </span>
+                    </div>
+                    <p style="color:#cbd5e1;margin:0;font-size:0.95rem;">{summary}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Drugs analysed pills
+                pills = "".join(
+                    f'<span style="background:#1e40af22;border:1px solid #3b82f6;color:#93c5fd;'
+                    f'padding:3px 12px;border-radius:20px;font-size:0.82rem;margin:2px;">{d}</span>'
+                    for d in raw_drugs
+                )
+                st.markdown(f'<div style="margin-bottom:1rem;display:flex;flex-wrap:wrap;gap:4px;">{pills}</div>',
+                            unsafe_allow_html=True)
+
+                # Interaction cards
+                if interactions:
+                    st.markdown('<h4 style="color:#94a3b8;font-size:0.9rem;margin:0 0 0.6rem;">INTERACTIONS FOUND</h4>',
+                                unsafe_allow_html=True)
+                    for ix in interactions:
+                        isev     = ix.get("severity", "MILD")
+                        isev_col = SEV_COLOR.get(isev, "#facc15")
+                        isev_ico = SEV_ICON.get(isev, "⚠️")
+                        pair     = " + ".join(ix.get("drugs", []))
+                        effect   = ix.get("effect", "")
+                        mech     = ix.get("mechanism", "")
+                        rec      = ix.get("recommendation", "")
+                        st.markdown(f"""
+                        <div style="background:#0f172a;border:1px solid {isev_col}55;border-radius:10px;
+                                    padding:1rem 1.2rem;margin-bottom:0.8rem;">
+                            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;">
+                                <span style="font-size:1.2rem;">{isev_ico}</span>
+                                <span style="font-weight:700;color:{isev_col};font-size:0.95rem;">{isev}</span>
+                                <span style="color:#e2e8f0;font-weight:600;font-size:0.95rem;">— {pair}</span>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+                                <div>
+                                    <div style="color:#64748b;font-size:0.72rem;text-transform:uppercase;
+                                                letter-spacing:0.05em;margin-bottom:2px;">What happens</div>
+                                    <div style="color:#cbd5e1;font-size:0.88rem;">{effect}</div>
+                                </div>
+                                <div>
+                                    <div style="color:#64748b;font-size:0.72rem;text-transform:uppercase;
+                                                letter-spacing:0.05em;margin-bottom:2px;">Why it occurs</div>
+                                    <div style="color:#cbd5e1;font-size:0.88rem;">{mech}</div>
+                                </div>
+                            </div>
+                            <div style="margin-top:0.6rem;background:rgba(255,255,255,0.04);
+                                        border-radius:6px;padding:0.5rem 0.8rem;">
+                                <span style="color:#64748b;font-size:0.72rem;text-transform:uppercase;
+                                            letter-spacing:0.05em;">Recommendation &nbsp;</span>
+                                <span style="color:#e2e8f0;font-size:0.88rem;">{rec}</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                    <div style="background:#052e16;border:1px solid #22c55e44;border-radius:10px;
+                                padding:1rem 1.2rem;margin-bottom:1rem;">
+                        <span style="font-size:1.2rem;">✅</span>
+                        <span style="color:#4ade80;font-weight:600;margin-left:0.5rem;">
+                            No significant interactions found between these medications.
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # General advice
+                if advice:
+                    st.markdown(f"""
+                    <div style="background:rgba(99,102,241,0.08);border:1px solid #6366f133;
+                                border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:0.8rem;">
+                        <div style="color:#a5b4fc;font-size:0.75rem;text-transform:uppercase;
+                                    letter-spacing:0.06em;margin-bottom:0.3rem;">General Advice</div>
+                        <div style="color:#cbd5e1;font-size:0.9rem;">{advice}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # See doctor alert
+                if see_doc:
+                    st.markdown("""
+                    <div style="background:#450a0a;border:1px solid #ef444455;border-radius:10px;
+                                padding:0.9rem 1.1rem;margin-bottom:0.8rem;">
+                        <span style="font-size:1.1rem;">🏥</span>
+                        <span style="color:#fca5a5;font-weight:600;margin-left:0.5rem;">
+                            Please consult your doctor or pharmacist before taking these medications together.
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # Disclaimer
+                st.markdown("""
+                <div style="background:rgba(255,255,255,0.02);border:1px solid #1e293b;
+                            border-radius:8px;padding:0.7rem 1rem;margin-top:0.5rem;">
+                    <span style="color:#475569;font-size:0.78rem;">
+                        ⚠️ <strong style="color:#64748b;">Disclaimer:</strong>
+                        This tool uses AI for informational purposes only. It is not a substitute
+                        for professional medical or pharmaceutical advice. Always verify with a licensed
+                        pharmacist or physician before changing your medication regimen.
+                    </span>
+                </div>
+                """, unsafe_allow_html=True)
+
+    elif check_clicked:
+        st.info("Please enter at least two drug names to check interactions.")
+
+    # ── Past Checks History ──────────────────────────────────────────────────
+    if st.session_state.drug_checks:
+        st.markdown("<hr style='border-color:#1e293b;margin:1.5rem 0 1rem;'>", unsafe_allow_html=True)
+        st.markdown('<p style="color:#475569;font-size:0.8rem;text-transform:uppercase;'
+                    'letter-spacing:0.08em;margin-bottom:0.6rem;">Recent Checks</p>',
+                    unsafe_allow_html=True)
+        for i, chk in enumerate(st.session_state.drug_checks[:5]):
+            chk_sev   = chk["result"].get("severity", "SAFE")
+            chk_col   = SEV_COLOR.get(chk_sev, "#22c55e")
+            chk_ico   = SEV_ICON.get(chk_sev, "✅")
+            chk_drugs = " + ".join(chk["drugs"])
+            chk_ts    = chk["ts"]
+            st.markdown(f"""
+            <div style="display:flex;align-items:center;justify-content:space-between;
+                        background:rgba(255,255,255,0.02);border:1px solid #1e293b;
+                        border-radius:8px;padding:0.5rem 0.9rem;margin-bottom:0.4rem;">
+                <div>
+                    <span style="font-size:1rem;margin-right:0.4rem;">{chk_ico}</span>
+                    <span style="color:#e2e8f0;font-size:0.88rem;font-weight:500;">{chk_drugs}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:0.8rem;">
+                    <span style="color:{chk_col};font-size:0.78rem;font-weight:600;">{chk_sev}</span>
+                    <span style="color:#475569;font-size:0.75rem;">{chk_ts}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
 # Footer
 st.markdown("""
