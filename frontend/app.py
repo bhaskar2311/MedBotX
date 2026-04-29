@@ -3,11 +3,17 @@ MedBotX — Advanced AI Medical Assistant
 Developed by Bhaskar Shivaji Kumbhar
 Direct OpenAI integration — no backend required
 """
-import os, re, json
+import os, re, json, base64, io
 from datetime import datetime
 from openai import OpenAI
 import streamlit as st
 from dotenv import load_dotenv
+
+try:
+    import fitz  # PyMuPDF
+    HAS_PYMUPDF = True
+except ImportError:
+    HAS_PYMUPDF = False
 
 load_dotenv()
 
@@ -27,7 +33,6 @@ DEFAULTS = {
     "chat_history":     [],    # saved sessions: [{title, messages, ts, count}]
     "oai_history":      [],    # OpenAI format: [{role, content}]
     "drug_checks":      [],    # drug checker history: [{drugs, result, ts}]
-    "reminders":        [],    # medication reminders: [{name, dose, time, freq, note, active}]
     "health_profile": {
         "name": "", "age": "", "blood_type": "",
         "allergies": "", "conditions": "", "medications": "", "notes": "",
@@ -734,12 +739,11 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_chat, tab_drug, tab_sym, tab_bmi, tab_med, tab_rep = st.tabs([
+tab_chat, tab_drug, tab_sym, tab_bmi, tab_rep = st.tabs([
     "💬  Chat",
     "💊  Drug Checker",
     "🩺  Symptom Checker",
     "⚖️  BMI & Health",
-    "⏰  Med Reminders",
     "📋  Report Analyser",
 ])
 
@@ -1317,261 +1321,261 @@ with tab_bmi:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  TAB 5 — MEDICATION REMINDERS
+#  TAB 5 — MEDICAL REPORT ANALYSER  (Text · PDF · Image)
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_med:
-    st.markdown("""
-    <div style="margin-bottom:1rem;">
-        <h2 style="color:#e2e8f0;margin:0;font-size:1.4rem;">⏰ Medication Reminders</h2>
-        <p style="color:#94a3b8;margin:0.3rem 0 0;font-size:0.9rem;">
-            Track your medications, doses, and schedules in one place.
-            Reminders are stored for this session.
-        </p>
+STATUS_COL = {"Normal": "#22c55e", "High": "#ef4444", "Low": "#facc15",
+              "Abnormal": "#f97316", "Critical": "#dc2626"}
+
+def render_report_results(rep_result: dict):
+    """Render the structured report analysis — shared by all input modes."""
+    title    = rep_result.get("title", "Medical Report")
+    summary  = rep_result.get("summary", "")
+    findings = rep_result.get("key_findings", [])
+    abn_cnt  = rep_result.get("abnormal_count", 0)
+    overall  = rep_result.get("overall_impression", "")
+    followup = rep_result.get("follow_up", [])
+    consult  = rep_result.get("consult_specialist", False)
+    spec     = rep_result.get("specialist_type", "")
+
+    st.markdown(f"""
+    <div style="background:rgba(255,255,255,0.04);border:1px solid #334155;
+                border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;">
+        <div style="color:#7dd3fc;font-size:0.75rem;text-transform:uppercase;
+                    letter-spacing:0.06em;margin-bottom:0.3rem;">{title}</div>
+        <p style="color:#e2e8f0;font-size:0.95rem;margin:0;">{summary}</p>
+        <div style="margin-top:0.6rem;display:flex;gap:1rem;flex-wrap:wrap;">
+            <span style="color:#94a3b8;font-size:0.82rem;">
+                🔍 <strong style="color:#e2e8f0;">{len(findings)}</strong> parameters checked
+            </span>
+            <span style="color:#94a3b8;font-size:0.82rem;">
+                ⚠️ <strong style="color:{'#ef4444' if abn_cnt > 0 else '#22c55e'};">{abn_cnt}</strong> abnormal
+            </span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Add reminder form
-    with st.expander("➕  Add New Medication", expanded=len(st.session_state.reminders) == 0):
-        rm1, rm2 = st.columns(2)
-        with rm1:
-            r_name = st.text_input("Medication Name", placeholder="e.g. Metformin 500mg", key="r_name")
-            r_dose = st.text_input("Dose", placeholder="e.g. 1 tablet", key="r_dose")
-            r_time = st.text_input("Time(s)", placeholder="e.g. 8:00 AM, 8:00 PM", key="r_time")
-        with rm2:
-            r_freq = st.selectbox("Frequency", [
-                "Once daily", "Twice daily", "Three times daily",
-                "Every 8 hours", "Every 12 hours", "Weekly", "As needed",
-            ], key="r_freq")
-            r_food = st.selectbox("With food?", ["With food", "Without food", "Doesn't matter"], key="r_food")
-            r_note = st.text_input("Notes", placeholder="e.g. For blood pressure", key="r_note")
-
-        add_rem = st.button("➕  Add Reminder", type="primary", key="add_rem_btn")
-        if add_rem and r_name.strip():
-            st.session_state.reminders.append({
-                "name": r_name.strip(), "dose": r_dose, "time": r_time,
-                "freq": r_freq, "food": r_food, "note": r_note, "active": True,
-                "added": datetime.now().strftime("%b %d, %Y"),
-            })
-            st.success(f"Reminder added for **{r_name.strip()}**")
-            st.rerun()
-        elif add_rem:
-            st.warning("Please enter a medication name.")
-
-    # Display reminders
-    if not st.session_state.reminders:
-        st.markdown("""
-        <div style="text-align:center;padding:2rem;color:#475569;">
-            <div style="font-size:2.5rem;margin-bottom:0.5rem;">💊</div>
-            <div style="font-size:1rem;color:#64748b;">No reminders added yet.</div>
-            <div style="font-size:0.85rem;margin-top:0.3rem;">Use the form above to add your medications.</div>
+    if findings:
+        st.markdown('<h4 style="color:#94a3b8;font-size:0.82rem;text-transform:uppercase;'
+                    'letter-spacing:0.06em;margin:0 0 0.6rem;">Key Findings</h4>',
+                    unsafe_allow_html=True)
+        rows = ""
+        for f in findings:
+            sc = STATUS_COL.get(f.get("status", "Normal"), "#22c55e")
+            rows += f"""
+            <tr>
+                <td style="padding:8px 10px;color:#e2e8f0;font-weight:500;">{f.get('parameter','')}</td>
+                <td style="padding:8px 10px;color:#cbd5e1;">{f.get('value','')}</td>
+                <td style="padding:8px 10px;color:#64748b;font-size:0.82rem;">{f.get('normal_range','')}</td>
+                <td style="padding:8px 10px;text-align:center;">
+                    <span style="background:{sc}22;border:1px solid {sc}55;color:{sc};
+                                padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:600;">
+                        {f.get('status','')}
+                    </span>
+                </td>
+                <td style="padding:8px 10px;color:#94a3b8;font-size:0.82rem;">{f.get('meaning','')}</td>
+            </tr>"""
+        st.markdown(f"""
+        <div style="overflow-x:auto;margin-bottom:1rem;">
+            <table style="width:100%;border-collapse:collapse;background:#0f172a;
+                          border-radius:10px;overflow:hidden;">
+                <thead><tr style="background:#1e293b;">
+                    <th style="padding:8px 10px;text-align:left;color:#64748b;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Parameter</th>
+                    <th style="padding:8px 10px;text-align:left;color:#64748b;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Value</th>
+                    <th style="padding:8px 10px;text-align:left;color:#64748b;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Normal Range</th>
+                    <th style="padding:8px 10px;text-align:center;color:#64748b;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Status</th>
+                    <th style="padding:8px 10px;text-align:left;color:#64748b;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Meaning</th>
+                </tr></thead>
+                <tbody>{rows}</tbody>
+            </table>
         </div>
         """, unsafe_allow_html=True)
-    else:
-        active   = [r for r in st.session_state.reminders if r.get("active")]
-        inactive = [r for r in st.session_state.reminders if not r.get("active")]
 
-        st.markdown(f'<p style="color:#64748b;font-size:0.8rem;margin:0 0 0.8rem;">'
-                    f'{len(active)} active · {len(inactive)} paused</p>', unsafe_allow_html=True)
+    if overall:
+        st.markdown(f"""
+        <div style="background:rgba(99,102,241,0.08);border:1px solid #6366f133;
+                    border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:0.8rem;">
+            <div style="color:#a5b4fc;font-size:0.75rem;text-transform:uppercase;
+                        letter-spacing:0.06em;margin-bottom:0.3rem;">Overall Impression</div>
+            <div style="color:#e2e8f0;font-size:0.92rem;">{overall}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        for i, rem in enumerate(st.session_state.reminders):
-            is_active = rem.get("active", True)
-            op        = "0.5" if not is_active else "1"
-            col_r, col_tog, col_del = st.columns([6, 1, 1])
-            with col_r:
-                st.markdown(f"""
-                <div style="background:#0f172a;border:1px solid {'#334155' if is_active else '#1e293b'};
-                            border-radius:10px;padding:0.8rem 1rem;opacity:{op};">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div>
-                            <span style="color:#e2e8f0;font-weight:600;font-size:0.95rem;">💊 {rem['name']}</span>
-                            <span style="color:#64748b;font-size:0.8rem;margin-left:0.8rem;">{rem.get('added','')}</span>
-                        </div>
-                        <span style="background:{'#22c55e22' if is_active else '#1e293b'};
-                                    border:1px solid {'#22c55e55' if is_active else '#334155'};
-                                    color:{'#4ade80' if is_active else '#64748b'};
-                                    padding:2px 10px;border-radius:20px;font-size:0.72rem;">
-                            {'Active' if is_active else 'Paused'}
-                        </span>
-                    </div>
-                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.4rem;margin-top:0.5rem;">
-                        <div><span style="color:#64748b;font-size:0.72rem;">Dose</span>
-                             <div style="color:#cbd5e1;font-size:0.85rem;">{rem.get('dose') or '—'}</div></div>
-                        <div><span style="color:#64748b;font-size:0.72rem;">Time</span>
-                             <div style="color:#cbd5e1;font-size:0.85rem;">{rem.get('time') or '—'}</div></div>
-                        <div><span style="color:#64748b;font-size:0.72rem;">Frequency</span>
-                             <div style="color:#cbd5e1;font-size:0.85rem;">{rem.get('freq') or '—'}</div></div>
-                    </div>
-                    {f'<div style="margin-top:0.4rem;color:#94a3b8;font-size:0.82rem;">📝 {rem["note"]}</div>' if rem.get("note") else ''}
-                    <div style="margin-top:0.3rem;color:#64748b;font-size:0.78rem;">🍽️ {rem.get('food','—')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with col_tog:
-                lbl = "⏸️" if is_active else "▶️"
-                if st.button(lbl, key=f"tog_{i}", help="Pause/Resume"):
-                    st.session_state.reminders[i]["active"] = not is_active
-                    st.rerun()
-            with col_del:
-                if st.button("🗑️", key=f"del_{i}", help="Delete"):
-                    st.session_state.reminders.pop(i)
-                    st.rerun()
+    if followup:
+        fu_html = "".join(f'<li style="color:#cbd5e1;font-size:0.88rem;margin-bottom:4px;">{fu}</li>' for fu in followup)
+        st.markdown(f"""
+        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;
+                    padding:0.8rem 1rem;margin-bottom:0.8rem;">
+            <div style="color:#fbbf24;font-size:0.75rem;text-transform:uppercase;
+                        letter-spacing:0.06em;margin-bottom:0.5rem;">Follow-up Actions</div>
+            <ul style="margin:0;padding-left:1.2rem;">{fu_html}</ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if consult and spec:
+        st.markdown(f"""
+        <div style="background:#1c1207;border:1px solid #f9731655;border-radius:10px;
+                    padding:0.8rem 1rem;margin-bottom:0.8rem;">
+            <span style="font-size:1rem;">🏥</span>
+            <span style="color:#fdba74;font-weight:600;margin-left:0.5rem;">
+                Consider consulting a <strong>{spec}</strong> based on these results.
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:rgba(255,255,255,0.02);border:1px solid #1e293b;
+                border-radius:8px;padding:0.7rem 1rem;margin-top:0.5rem;">
+        <span style="color:#475569;font-size:0.78rem;">
+            ⚠️ <strong style="color:#64748b;">Disclaimer:</strong>
+            AI interpretation is for educational purposes only. Always have your reports
+            reviewed by a qualified healthcare professional.
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  TAB 6 — MEDICAL REPORT ANALYSER
-# ══════════════════════════════════════════════════════════════════════════════
 with tab_rep:
     st.markdown("""
     <div style="margin-bottom:1rem;">
         <h2 style="color:#e2e8f0;margin:0;font-size:1.4rem;">📋 Medical Report Analyser</h2>
         <p style="color:#94a3b8;margin:0.3rem 0 0;font-size:0.9rem;">
-            Paste your medical report (blood test, MRI findings, pathology etc.) and get a plain-English
-            explanation of what it means.
+            Upload or paste your medical report — blood test, MRI findings, X-ray, pathology etc.
+            Get a plain-English explanation with status indicators.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    rep_text = st.text_area(
-        "Paste your report here",
-        placeholder="""Example:
-CBC Report:
-Haemoglobin: 10.2 g/dL (Normal: 13.5-17.5)
-WBC: 11,500 /μL (Normal: 4,500-11,000)
-Platelets: 420,000 /μL (Normal: 150,000-400,000)
-RBC: 3.8 million/μL (Normal: 4.5-5.9 million)
-Glucose (Fasting): 126 mg/dL (Normal: 70-100)""",
-        height=200, key="rep_text",
+    # ── Input mode selector ───────────────────────────────────────────────────
+    input_mode = st.radio(
+        "Choose input method",
+        ["📝  Paste Text", "📄  Upload PDF", "🖼️  Upload Image"],
+        horizontal=True, key="rep_mode", label_visibility="collapsed",
     )
+    st.markdown("<div style='margin-bottom:0.8rem;'></div>", unsafe_allow_html=True)
 
-    rep_btn = st.button("🔬  Analyse Report", type="primary", key="rep_btn")
+    rep_content_ready = False
+    rep_text_final    = ""
+    rep_image_b64     = None
+    rep_image_mime    = None
 
-    if rep_btn and rep_text.strip():
-        with st.spinner("Analysing your medical report…"):
-            rep_result = summarize_report(rep_text.strip())
+    # ── TEXT mode ─────────────────────────────────────────────────────────────
+    if input_mode == "📝  Paste Text":
+        rep_text_in = st.text_area(
+            "Paste your report here",
+            placeholder="""Example — CBC Report:
+Haemoglobin: 10.2 g/dL  (Normal: 13.5–17.5)
+WBC: 11,500 /μL          (Normal: 4,500–11,000)
+Platelets: 420,000 /μL   (Normal: 150,000–400,000)
+Glucose (Fasting): 126 mg/dL  (Normal: 70–100)""",
+            height=220, key="rep_text_in",
+        )
+        if rep_text_in.strip():
+            rep_text_final    = rep_text_in.strip()
+            rep_content_ready = True
 
-        if "error" in rep_result:
-            st.error(rep_result["error"])
+    # ── PDF mode ──────────────────────────────────────────────────────────────
+    elif input_mode == "📄  Upload PDF":
+        if not HAS_PYMUPDF:
+            st.warning("PyMuPDF is not installed. Run `pip install pymupdf` and restart the app.")
         else:
-            title    = rep_result.get("title", "Medical Report")
-            summary  = rep_result.get("summary", "")
-            findings = rep_result.get("key_findings", [])
-            abn_cnt  = rep_result.get("abnormal_count", 0)
-            overall  = rep_result.get("overall_impression", "")
-            followup = rep_result.get("follow_up", [])
-            consult  = rep_result.get("consult_specialist", False)
-            spec     = rep_result.get("specialist_type", "")
+            pdf_file = st.file_uploader(
+                "Upload your PDF report", type=["pdf"], key="rep_pdf",
+                help="Max ~20 MB. Text will be extracted automatically.",
+            )
+            if pdf_file:
+                with st.spinner("Extracting text from PDF…"):
+                    try:
+                        pdf_bytes = pdf_file.read()
+                        doc       = fitz.open(stream=pdf_bytes, filetype="pdf")
+                        pages_txt = []
+                        for page in doc:
+                            pages_txt.append(page.get_text())
+                        doc.close()
+                        rep_text_final = "\n".join(pages_txt).strip()
+                        if rep_text_final:
+                            rep_content_ready = True
+                            st.success(f"Extracted {len(rep_text_final):,} characters from {len(pages_txt)} page(s).")
+                            with st.expander("Preview extracted text"):
+                                st.text(rep_text_final[:2000] + ("…" if len(rep_text_final) > 2000 else ""))
+                        else:
+                            st.warning("No text found in this PDF. It may be a scanned image — try the Image upload instead.")
+                    except Exception as e:
+                        st.error(f"Could not read PDF: {e}")
 
-            # Header
-            st.markdown(f"""
-            <div style="background:rgba(255,255,255,0.04);border:1px solid #334155;
-                        border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;">
-                <div style="color:#7dd3fc;font-size:0.75rem;text-transform:uppercase;
-                            letter-spacing:0.06em;margin-bottom:0.3rem;">{title}</div>
-                <p style="color:#e2e8f0;font-size:0.95rem;margin:0;">{summary}</p>
-                <div style="margin-top:0.6rem;display:flex;gap:1rem;flex-wrap:wrap;">
-                    <span style="color:#94a3b8;font-size:0.82rem;">
-                        🔍 <strong style="color:#e2e8f0;">{len(findings)}</strong> parameters checked
-                    </span>
-                    <span style="color:#94a3b8;font-size:0.82rem;">
-                        ⚠️ <strong style="color:{'#ef4444' if abn_cnt > 0 else '#22c55e'};">{abn_cnt}</strong> abnormal
-                    </span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+    # ── IMAGE mode ────────────────────────────────────────────────────────────
+    elif input_mode == "🖼️  Upload Image":
+        img_file = st.file_uploader(
+            "Upload your report image",
+            type=["jpg", "jpeg", "png", "webp", "bmp"],
+            key="rep_img",
+            help="Scanned reports, lab printouts, X-ray screenshots etc.",
+        )
+        if img_file:
+            rep_image_mime = img_file.type or "image/jpeg"
+            img_bytes      = img_file.read()
+            rep_image_b64  = base64.b64encode(img_bytes).decode("utf-8")
+            rep_content_ready = True
+            st.image(img_bytes, caption="Uploaded report", use_container_width=False, width=480)
 
-            # Key findings table
-            if findings:
-                STATUS_COL = {"Normal": "#22c55e", "High": "#ef4444", "Low": "#facc15",
-                              "Abnormal": "#f97316", "Critical": "#dc2626"}
-                st.markdown('<h4 style="color:#94a3b8;font-size:0.82rem;text-transform:uppercase;'
-                            'letter-spacing:0.06em;margin:0 0 0.6rem;">Key Findings</h4>',
-                            unsafe_allow_html=True)
-                rows = ""
-                for f in findings:
-                    sc  = STATUS_COL.get(f.get("status", "Normal"), "#22c55e")
-                    rows += f"""
-                    <tr>
-                        <td style="padding:8px 10px;color:#e2e8f0;font-weight:500;">{f.get('parameter','')}</td>
-                        <td style="padding:8px 10px;color:#cbd5e1;">{f.get('value','')}</td>
-                        <td style="padding:8px 10px;color:#64748b;font-size:0.82rem;">{f.get('normal_range','')}</td>
-                        <td style="padding:8px 10px;text-align:center;">
-                            <span style="background:{sc}22;border:1px solid {sc}55;color:{sc};
-                                        padding:2px 8px;border-radius:12px;font-size:0.75rem;
-                                        font-weight:600;">{f.get('status','')}</span>
-                        </td>
-                        <td style="padding:8px 10px;color:#94a3b8;font-size:0.82rem;">{f.get('meaning','')}</td>
-                    </tr>"""
-                st.markdown(f"""
-                <div style="overflow-x:auto;margin-bottom:1rem;">
-                    <table style="width:100%;border-collapse:collapse;background:#0f172a;
-                                  border-radius:10px;overflow:hidden;">
-                        <thead>
-                            <tr style="background:#1e293b;">
-                                <th style="padding:8px 10px;text-align:left;color:#64748b;
-                                           font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Parameter</th>
-                                <th style="padding:8px 10px;text-align:left;color:#64748b;
-                                           font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Value</th>
-                                <th style="padding:8px 10px;text-align:left;color:#64748b;
-                                           font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Normal Range</th>
-                                <th style="padding:8px 10px;text-align:center;color:#64748b;
-                                           font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Status</th>
-                                <th style="padding:8px 10px;text-align:left;color:#64748b;
-                                           font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Meaning</th>
-                            </tr>
-                        </thead>
-                        <tbody>{rows}</tbody>
-                    </table>
-                </div>
-                """, unsafe_allow_html=True)
+    # ── Analyse button ────────────────────────────────────────────────────────
+    rep_btn = st.button("🔬  Analyse Report", type="primary", key="rep_btn",
+                        disabled=not rep_content_ready)
 
-            # Overall impression
-            if overall:
-                st.markdown(f"""
-                <div style="background:rgba(99,102,241,0.08);border:1px solid #6366f133;
-                            border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:0.8rem;">
-                    <div style="color:#a5b4fc;font-size:0.75rem;text-transform:uppercase;
-                                letter-spacing:0.06em;margin-bottom:0.3rem;">Overall Impression</div>
-                    <div style="color:#e2e8f0;font-size:0.92rem;">{overall}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-            # Follow up
-            if followup:
-                fu_html = "".join(f'<li style="color:#cbd5e1;font-size:0.88rem;margin-bottom:4px;">{f}</li>' for f in followup)
-                st.markdown(f"""
-                <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;
-                            padding:0.8rem 1rem;margin-bottom:0.8rem;">
-                    <div style="color:#fbbf24;font-size:0.75rem;text-transform:uppercase;
-                                letter-spacing:0.06em;margin-bottom:0.5rem;">Follow-up Actions</div>
-                    <ul style="margin:0;padding-left:1.2rem;">{fu_html}</ul>
-                </div>
-                """, unsafe_allow_html=True)
-
-            # Consult specialist
-            if consult and spec:
-                st.markdown(f"""
-                <div style="background:#1c1207;border:1px solid #f9731655;border-radius:10px;
-                            padding:0.8rem 1rem;margin-bottom:0.8rem;">
-                    <span style="font-size:1rem;">🏥</span>
-                    <span style="color:#fdba74;font-weight:600;margin-left:0.5rem;">
-                        Consider consulting a <strong>{spec}</strong> based on these results.
-                    </span>
-                </div>
-                """, unsafe_allow_html=True)
-
-            # Disclaimer
-            st.markdown("""
-            <div style="background:rgba(255,255,255,0.02);border:1px solid #1e293b;
-                        border-radius:8px;padding:0.7rem 1rem;margin-top:0.5rem;">
-                <span style="color:#475569;font-size:0.78rem;">
-                    ⚠️ <strong style="color:#64748b;">Disclaimer:</strong>
-                    AI interpretation is for educational purposes only. Always have your reports
-                    reviewed by a qualified healthcare professional.
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
+    if rep_btn and rep_content_ready:
+        if rep_image_b64:
+            # Vision path — send image directly to GPT-4o
+            with st.spinner("Reading and analysing report image…"):
+                if not API_KEY:
+                    st.error("No API key configured.")
+                else:
+                    try:
+                        client = OpenAI(api_key=API_KEY)
+                        vision_prompt = """You are a clinical expert. Analyse this medical report image.
+Respond ONLY with valid JSON (no markdown):
+{
+  "title": "Report type",
+  "summary": "2-3 sentence plain-English summary",
+  "key_findings": [
+    {"parameter": "...", "value": "...", "normal_range": "...", "status": "Normal|High|Low|Abnormal|Critical", "meaning": "..."}
+  ],
+  "abnormal_count": 0,
+  "overall_impression": "Overall health interpretation",
+  "follow_up": ["action 1", "action 2"],
+  "consult_specialist": true,
+  "specialist_type": "e.g. Haematologist or null"
+}"""
+                        resp = client.chat.completions.create(
+                            model=MODEL,
+                            messages=[{"role": "user", "content": [
+                                {"type": "text",       "text": vision_prompt},
+                                {"type": "image_url",  "image_url": {
+                                    "url": f"data:{rep_image_mime};base64,{rep_image_b64}",
+                                    "detail": "high",
+                                }},
+                            ]}],
+                            temperature=0.1,
+                            max_tokens=1800,
+                        )
+                        raw = resp.choices[0].message.content.strip()
+                        raw = re.sub(r'^```json\s*', '', raw)
+                        raw = re.sub(r'\s*```$', '', raw)
+                        rep_result = json.loads(raw)
+                        render_report_results(rep_result)
+                    except json.JSONDecodeError:
+                        st.error("Could not parse AI response. Please try again.")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        else:
+            # Text / PDF path
+            with st.spinner("Analysing your medical report…"):
+                rep_result = summarize_report(rep_text_final)
+            if "error" in rep_result:
+                st.error(rep_result["error"])
+            else:
+                render_report_results(rep_result)
 
     elif rep_btn:
-        st.info("Please paste your medical report text above.")
+        st.info("Please provide a report to analyse.")
 
 
 # Footer
