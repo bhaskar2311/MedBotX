@@ -4,7 +4,7 @@
 
 An AI-powered medical assistant built with **Streamlit** and **OpenAI GPT-4o** that provides accurate, personalised health information. No backend required — everything runs directly in the browser via the Streamlit frontend.
 
-🔗 **Live App:** [Deployed on Streamlit Community Cloud]([https://share.streamlit.io](https://medbotx.streamlit.app/))
+🔗 **Live App:** https://medbotx.streamlit.app/
 
 ---
 
